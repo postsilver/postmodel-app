@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, Suspense, useEffect } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { OrbitControls, useGLTF, Environment, ContactShadows } from '@react-three/drei'
+import { Canvas, useFrame } from '@react-three/fiber'
+import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
 
@@ -35,39 +35,107 @@ function decodeScene(encoded) {
   }
 }
 
-function Room() {
-  const { scene } = useGLTF('/room.glb')
-  
+function InfiniteGrid() {
+  return (
+    <Grid
+      position={[0, 0, 0]}
+      args={[100, 100]}
+      cellSize={1}
+      cellThickness={0.5}
+      cellColor="#b0b0b0"
+      sectionSize={5}
+      sectionThickness={1}
+      sectionColor="#888888"
+      fadeDistance={30}
+      fadeStrength={1}
+      infiniteGrid
+    />
+  )
+}
+
+
+function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
+  const isDragging = useRef(false)
+  const lastY = useRef(0)
+
+  const handleDown = (e) => {
+    e.stopPropagation()
+    e.target.setPointerCapture(e.pointerId)
+    isDragging.current = true
+    lastY.current = e.clientY
+    if (orbitRef?.current) orbitRef.current.enabled = false
+    onDragCommit?.()
+  }
+  const handleMove = (e) => {
+    if (!isDragging.current) return
+    e.stopPropagation()
+    const delta = (lastY.current - e.clientY) * 0.01
+    onDrag(delta)
+    lastY.current = e.clientY
+  }
+  const handleUp = (e) => {
+    e.target.releasePointerCapture(e.pointerId)
+    isDragging.current = false
+    if (orbitRef?.current) orbitRef.current.enabled = true
+  }
+
+  return (
+    <group position={[0, baseY, 0]}>
+      {/* Shaft */}
+      <mesh position={[0, 1, 0]}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+      >
+        <cylinderGeometry args={[0.02, 0.02, 2, 8]} />
+        <meshStandardMaterial color="#51cf66" depthTest={false} />
+      </mesh>
+      {/* Arrowhead */}
+      <mesh position={[0, 2.15, 0]}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+      >
+        <coneGeometry args={[0.07, 0.3, 8]} />
+        <meshStandardMaterial color="#51cf66" depthTest={false} />
+      </mesh>
+    </group>
+  )
+}
+
+function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
+  const { scene } = useGLTF(path)
+  const groupRef = useRef()
+  const pos = useRef(position)
+  const offset = useRef([0, 0])
+
   const clonedScene = useMemo(() => {
     const clone = scene.clone(true)
+    const box = new THREE.Box3().setFromObject(clone)
+    const center = new THREE.Vector3()
+    box.getCenter(center)
     clone.traverse((child) => {
-      if (child.isMesh) {
-        if (Array.isArray(child.material)) {
-          child.material = child.material.map(m => {
-            const newMat = m.clone()
-            newMat.side = THREE.DoubleSide
-            return newMat
-          })
-        } else {
-          child.material = child.material.clone()
-          child.material.side = THREE.DoubleSide
-        }
+      if (child.isMesh && child.geometry) {
+        child.geometry = child.geometry.clone()
+        // Center X and Z, floor-snap Y (bottom at 0)
+        child.geometry.translate(
+          -center.x,
+          -box.min.y,
+          -center.z
+        )
       }
     })
     return clone
   }, [scene])
-  
-  return <primitive object={clonedScene} />
-}
 
-function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd, isSelected, onSelect, materialSettings, onMeshListUpdate, onPositionChange, isEmbed }) {
-  const { scene } = useGLTF(path)
-  const meshRef = useRef()
-  const pos = useRef(position)
-  const offset = useRef([0, 0])
-  
-  const clonedScene = useMemo(() => scene.clone(true), [scene])
-  
+  const [arrowBase, setArrowBase] = useState(0)
+  useEffect(() => {
+    if (groupRef.current) {
+      const box = new THREE.Box3().setFromObject(groupRef.current)
+      setArrowBase(box.min.y - groupRef.current.position.y)
+    }
+  }, [clonedScene])
+
   // Get list of meshes and report to parent
   useEffect(() => {
     if (clonedScene && onMeshListUpdate) {
@@ -132,68 +200,117 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
         const intersect = new THREE.Vector3()
         event.ray.intersectPlane(floorPlane, intersect)
         offset.current = [
-          meshRef.current.position.x - intersect.x,
-          meshRef.current.position.z - intersect.z
+          groupRef.current.position.x - intersect.x,
+          groupRef.current.position.z - intersect.z
         ]
       }
     }
     if (last) {
+      onDragCommit?.()
       onDragEnd()
       if (onPositionChange) onPositionChange([...pos.current])
     }
-    
+
     if (active && event.ray) {
       const intersect = new THREE.Vector3()
       event.ray.intersectPlane(floorPlane, intersect)
       pos.current = [
-        intersect.x + offset.current[0], 
-        position[1], 
+        intersect.x + offset.current[0],
+        position[1],
         intersect.z + offset.current[1]
       ]
-      meshRef.current.position.set(...pos.current)
+      groupRef.current.position.set(...pos.current)
     }
   }, { pointerEvents: true })
 
   return (
-    <primitive
-      ref={meshRef}
-      object={clonedScene}
+    <group
+      ref={groupRef}
       position={position}
       {...(isEmbed ? {} : bind())}
+    >
+      <primitive object={clonedScene} />
+      {zMoveActive && isSelected && !isEmbed && (
+        <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
+          const newY = groupRef.current.position.y + delta
+          groupRef.current.position.y = newY
+          pos.current = [pos.current[0], newY, pos.current[2]]
+          if (onPositionChange) onPositionChange([...pos.current])
+        }} />
+      )}
+    </group>
+  )
+}
+
+function FPSControls({ onLockChange }) {
+  const keys = useRef({})
+  const controlsRef = useRef()
+
+  useEffect(() => {
+    const onKeyDown = (e) => { keys.current[e.code] = true }
+    const onKeyUp = (e) => { keys.current[e.code] = false }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [])
+
+  useFrame(({ camera }) => {
+    if (!controlsRef.current?.isLocked) return
+    const speed = 0.05
+    const forward = new THREE.Vector3()
+    const right = new THREE.Vector3()
+    camera.getWorldDirection(forward)
+    forward.y = 0
+    forward.normalize()
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
+    const move = new THREE.Vector3()
+    if (keys.current['KeyW'] || keys.current['ArrowUp']) move.add(forward)
+    if (keys.current['KeyS'] || keys.current['ArrowDown']) move.sub(forward)
+    if (keys.current['KeyA'] || keys.current['ArrowLeft']) move.sub(right)
+    if (keys.current['KeyD'] || keys.current['ArrowRight']) move.add(right)
+    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed)
+    camera.position.addScaledVector(move, 1)
+    camera.position.y = 1.7
+  })
+
+  return (
+    <PointerLockControls
+      ref={controlsRef}
+      onLock={() => onLockChange(true)}
+      onUnlock={() => onLockChange(false)}
     />
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
+  const isFps = navMode === 'fps'
+  const orbitRef = useRef()
 
   return (
     <>
+      <color attach="background" args={["#e0e0e0"]} />
+
       <Environment
         preset="studio"
         background={false}
-        environmentIntensity={0.1}
+        environmentIntensity={0.5}
       />
 
-      <ContactShadows
-        position={[0, 0.01, 0]}
-        opacity={0.4}
-        scale={20}
-        blur={2}
-        far={10}
-        color="#000000"
-      />
+      <ambientLight intensity={1.0} color="#ffffff" />
+      <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
+      <directionalLight position={[-5, 6, -5]} intensity={0.4} />
 
-      <pointLight
-        position={[0, 3, 0]}
-        intensity={20}
-        color="#fff5e6"
-        distance={15}
-        decay={2}
-      />
-      
-      <Room />
-      
+      <InfiniteGrid />
+
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
+        <planeGeometry args={[100, 100]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.1} metalness={0.1} />
+      </mesh>
+
       {placedFurniture.map((item) => (
         <Suspense key={item.instanceId} fallback={null}>
           <DraggableFurniture
@@ -202,17 +319,23 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
             floorPlane={floorPlane}
             onDragStart={() => setIsDragging(true)}
             onDragEnd={() => setIsDragging(false)}
-            isSelected={selectedId === item.instanceId}
             onSelect={() => setSelectedId(item.instanceId)}
             materialSettings={item.material}
             onMeshListUpdate={(meshes) => onMeshListUpdate(item.instanceId, meshes)}
             onPositionChange={(newPos) => onUpdatePosition(item.instanceId, newPos)}
-            isEmbed={isEmbed}
+            onDragCommit={onDragCommit}
+            isEmbed={isEmbed || isFps}
+            isSelected={selectedId === item.instanceId}
+            zMoveActive={zMoveActive}
+            orbitRef={orbitRef}
           />
         </Suspense>
       ))}
-      
-      <OrbitControls makeDefault enabled={!isDragging} />
+
+      {isFps
+        ? <FPSControls onLockChange={onPointerLockChange} />
+        : <OrbitControls makeDefault enabled={!isDragging} ref={orbitRef} />
+      }
     </>
   )
 }
@@ -742,6 +865,31 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [spawnOffset, setSpawnOffset] = useState(0)
   const [meshLists, setMeshLists] = useState({})
+  const [navMode, setNavMode] = useState('orbit')
+  const [isPointerLocked, setIsPointerLocked] = useState(false)
+  const [showNPanel, setShowNPanel] = useState(false)
+  const [zMoveActive, setZMoveActive] = useState(false)
+  const history = useRef([])
+
+  const saveHistory = (current) => {
+    history.current = [...history.current.slice(-19), current]
+  }
+
+  useEffect(() => {
+    if (isEmbed) return
+    const onKeyDown = (e) => {
+      if (e.key === 'n' || e.key === 'N') setShowNPanel(prev => !prev)
+      if (!e.ctrlKey && (e.key === 'z' || e.key === 'Z')) setZMoveActive(prev => !prev)
+      if (e.ctrlKey && e.key === 'z') {
+        if (history.current.length > 0) {
+          setPlacedFurniture(history.current[history.current.length - 1])
+          history.current = history.current.slice(0, -1)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isEmbed])
 
   // Restore scene from URL hash when loaded as an embed
   useEffect(() => {
@@ -773,30 +921,38 @@ function App() {
       ...catalogItem,
       instanceId: `${catalogItem.id}-${Date.now()}`,
       position: [spawnOffset * 0.5, 0, spawnOffset * 0.5],
+      rotation: { x: 0, y: 0 },
       material: { ...DEFAULT_MATERIAL, meshMaterials: {} },
     }
+    saveHistory(placedFurniture)
     setPlacedFurniture([...placedFurniture, newItem])
     setSpawnOffset((spawnOffset + 1) % 10)
   }
-  
+
   const deleteSelected = () => {
+    saveHistory(placedFurniture)
     setPlacedFurniture(placedFurniture.filter(item => item.instanceId !== selectedId))
     setSelectedId(null)
   }
-  
+
   const updateMaterial = (instanceId, newMaterial) => {
-    setPlacedFurniture(placedFurniture.map(item => 
-      item.instanceId === instanceId 
+    saveHistory(placedFurniture)
+    setPlacedFurniture(placedFurniture.map(item =>
+      item.instanceId === instanceId
         ? { ...item, material: newMaterial }
         : item
     ))
   }
-  
+
   const handleMeshListUpdate = (instanceId, meshes) => {
     setMeshLists(prev => ({
       ...prev,
       [instanceId]: meshes
     }))
+  }
+
+  const commitHistory = () => {
+    history.current = [...history.current.slice(-9), JSON.parse(JSON.stringify(placedFurniture))]
   }
 
   const updatePosition = (instanceId, newPosition) => {
@@ -819,6 +975,111 @@ function App() {
         />
       )}
 
+      {!isEmbed && (
+        <>
+          {/* N panel */}
+          {showNPanel && (
+            <div style={{
+              position: 'absolute',
+              right: 0,
+              top: 0,
+              width: '200px',
+              height: '100vh',
+              background: '#1a1a1a',
+              padding: '20px',
+              boxSizing: 'border-box',
+              color: 'white',
+              fontFamily: 'Arial, sans-serif',
+              overflowY: 'auto',
+              zIndex: 100,
+            }}>
+              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>NAVIGATION</div>
+              <button
+                onClick={() => {
+                  setNavMode(navMode === 'orbit' ? 'fps' : 'orbit')
+                  setIsPointerLocked(false)
+                }}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: '#333',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                }}
+              >
+                {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
+              </button>
+
+              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>TRANSFORM</div>
+              <button
+                onClick={() => setZMoveActive(prev => !prev)}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  marginTop: '4px',
+                  background: zMoveActive ? '#1a5c2a' : '#333',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                }}
+              >
+                ↕ Y Movement <span style={{ color: '#888', fontSize: '11px' }}>Z</span>
+              </button>
+            </div>
+          )}
+
+          {/* N tab */}
+          <div
+            onClick={() => setShowNPanel(prev => !prev)}
+            style={{
+              position: 'absolute',
+              right: showNPanel ? '200px' : '0',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 101,
+              background: '#333',
+              color: 'white',
+              padding: '8px 4px',
+              borderRadius: '4px 0 0 4px',
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontFamily: 'Arial, sans-serif',
+              writingMode: 'vertical-rl',
+              userSelect: 'none',
+            }}
+          >
+            N
+          </div>
+        </>
+      )}
+
+      {!isEmbed && navMode === 'fps' && !isPointerLocked && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 200,
+          background: 'rgba(0, 0, 0, 0.7)',
+          color: 'white',
+          padding: '20px 30px',
+          borderRadius: '8px',
+          textAlign: 'center',
+          fontSize: '14px',
+          lineHeight: '1.6',
+          pointerEvents: 'none',
+        }}>
+          Click to look around · WASD to move · ESC to exit
+        </div>
+      )}
+
       <Canvas
         shadows
         camera={{ position: [5, 5, 5], fov: 50 }}
@@ -829,7 +1090,7 @@ function App() {
         gl={{
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 0.5
+          toneMappingExposure: 1.0
         }}
       >
         <Suspense fallback={null}>
@@ -842,6 +1103,10 @@ function App() {
             onMeshListUpdate={handleMeshListUpdate}
             onUpdatePosition={updatePosition}
             isEmbed={isEmbed}
+            navMode={navMode}
+            onPointerLockChange={setIsPointerLocked}
+            zMoveActive={zMoveActive}
+            onDragCommit={commitHistory}
           />
         </Suspense>
       </Canvas>
