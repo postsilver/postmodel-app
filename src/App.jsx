@@ -6,20 +6,25 @@ import * as THREE from 'three'
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1 }
 
-function encodeScene(placedFurniture) {
-  const serializable = placedFurniture.map(item => {
-    const mat = { ...item.material }
-    // Blob URLs are session-only and won't work in other contexts
-    if (mat.textureUrl?.startsWith('blob:')) mat.textureUrl = null
-    if (mat.meshMaterials) {
-      const mm = {}
-      for (const [k, v] of Object.entries(mat.meshMaterials)) {
-        mm[k] = v.textureUrl?.startsWith('blob:') ? { ...v, textureUrl: null } : { ...v }
-      }
-      mat.meshMaterials = mm
+function nullBlobTextureUrls(mat) {
+  if (!mat || typeof mat !== 'object') return mat
+  const result = { ...mat }
+  if (result.textureUrl?.startsWith('blob:')) result.textureUrl = null
+  if (result.meshMaterials) {
+    const mm = {}
+    for (const [k, v] of Object.entries(result.meshMaterials)) {
+      mm[k] = nullBlobTextureUrls(v)
     }
-    return { ...item, material: mat }
-  })
+    result.meshMaterials = mm
+  }
+  return result
+}
+
+function encodeScene(placedFurniture) {
+  const serializable = placedFurniture.map(item => ({
+    ...item,
+    material: nullBlobTextureUrls(item.material),
+  }))
   try {
     return btoa(encodeURIComponent(JSON.stringify(serializable)))
   } catch {
@@ -369,15 +374,7 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
     setShareMsg(null)
     try {
       const sceneData = placedFurniture.map(item => {
-        const mat = { ...item.material }
-        if (mat.textureUrl?.startsWith('blob:')) mat.textureUrl = null
-        if (mat.meshMaterials) {
-          const mm = {}
-          for (const [k, v] of Object.entries(mat.meshMaterials)) {
-            mm[k] = v.textureUrl?.startsWith('blob:') ? { ...v, textureUrl: null } : { ...v }
-          }
-          mat.meshMaterials = mm
-        }
+        const mat = nullBlobTextureUrls(item.material)
         console.log('share serialized material:', JSON.stringify(mat))
         return { ...item, material: mat }
       })
@@ -431,8 +428,10 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
       })
     } else {
       const meshMaterials = { ...(selectedItem.material.meshMaterials || {}) }
+      // Fallback to global material but strip structural keys so per-mesh entries stay flat
+      const { meshMaterials: _mm, selectedPart: _sp, ...flatGlobal } = selectedItem.material
       meshMaterials[selectedPart] = {
-        ...(meshMaterials[selectedPart] || selectedItem.material),
+        ...(meshMaterials[selectedPart] || flatGlobal),
         ...newProps
       }
       onUpdateMaterial(selectedId, {
