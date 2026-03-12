@@ -378,6 +378,7 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
           }
           mat.meshMaterials = mm
         }
+        console.log('share serialized material:', JSON.stringify(mat))
         return { ...item, material: mat }
       })
       const res = await fetch('/api/share', {
@@ -796,10 +797,12 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
               onChange={async (e) => {
                 const file = e.target.files[0]
                 if (!file) return
+                console.log('texture selected', file.name)
                 // Optimistically show a local preview while uploading
                 const localUrl = URL.createObjectURL(file)
                 handleMaterialUpdate({ textureUrl: localUrl })
                 try {
+                  console.log('uploading to blob...')
                   const res = await fetch('/api/upload-texture', {
                     method: 'POST',
                     headers: {
@@ -808,8 +811,10 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
                     },
                     body: file,
                   })
+                  console.log('blob response:', res)
                   if (res.ok) {
                     const { url } = await res.json()
+                    console.log('textureUrl set to:', url)
                     handleMaterialUpdate({ textureUrl: url })
                   }
                 } catch {
