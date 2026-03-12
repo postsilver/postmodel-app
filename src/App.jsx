@@ -172,6 +172,7 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
           if (settings.textureUrl) {
             const loader = new THREE.TextureLoader()
             texture = loader.load(settings.textureUrl)
+            texture.colorSpace = THREE.SRGBColorSpace
             texture.wrapS = THREE.RepeatWrapping
             texture.wrapT = THREE.RepeatWrapping
             const scale = settings.textureScale || 1
