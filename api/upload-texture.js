@@ -14,6 +14,7 @@ export default async function handler(req, res) {
     const blob = await put(filename, req, {
       access: 'public',
       contentType,
+      allowOverwrite: true,
     })
     return res.status(200).json({ url: blob.url })
   } catch (err) {
