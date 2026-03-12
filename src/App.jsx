@@ -285,7 +285,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -303,6 +303,8 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
       <ambientLight intensity={1.0} color="#ffffff" />
       <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
       <directionalLight position={[-5, 6, -5]} intensity={0.4} />
+      <pointLight position={[0, 4, 0]} intensity={pointLightIntensity ?? 1.0} />
+      <pointLight position={[4, 3, -4]} intensity={pointLightIntensity ?? 1.0} />
 
       <InfiniteGrid />
 
@@ -340,7 +342,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
   )
 }
 
-function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists, envIntensity, setEnvIntensity }) {
+function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists, envIntensity, setEnvIntensity, pointLightIntensity, setPointLightIntensity }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedPart, setSelectedPart] = useState('all')
   const [showEmbed, setShowEmbed] = useState(false)
@@ -567,6 +569,18 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
           step="0.01"
           value={envIntensity}
           onChange={(e) => setEnvIntensity(parseFloat(e.target.value))}
+          style={{ width: '100%', marginTop: '4px' }}
+        />
+        <label style={{ fontSize: '12px', color: '#888', marginTop: '8px', display: 'block' }}>
+          Point Lights: {pointLightIntensity.toFixed(2)}
+        </label>
+        <input
+          type="range"
+          min="0"
+          max="5"
+          step="0.01"
+          value={pointLightIntensity}
+          onChange={(e) => setPointLightIntensity(parseFloat(e.target.value))}
           style={{ width: '100%', marginTop: '4px' }}
         />
       </div>
@@ -902,7 +916,8 @@ function App() {
   const [isPointerLocked, setIsPointerLocked] = useState(false)
   const [showNPanel, setShowNPanel] = useState(false)
   const [zMoveActive, setZMoveActive] = useState(false)
-  const [envIntensity, setEnvIntensity] = useState(0.5)
+  const [envIntensity, setEnvIntensity] = useState(0.09)
+  const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const history = useRef([])
 
   const saveHistory = (current) => {
@@ -1008,6 +1023,8 @@ function App() {
           meshLists={meshLists}
           envIntensity={envIntensity}
           setEnvIntensity={setEnvIntensity}
+          pointLightIntensity={pointLightIntensity}
+          setPointLightIntensity={setPointLightIntensity}
         />
       )}
 
@@ -1144,6 +1161,7 @@ function App() {
             zMoveActive={zMoveActive}
             onDragCommit={commitHistory}
             envIntensity={envIntensity}
+            pointLightIntensity={pointLightIntensity}
           />
         </Suspense>
       </Canvas>
