@@ -284,7 +284,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -296,7 +296,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
       <Environment
         preset="studio"
         background={false}
-        environmentIntensity={0.5}
+        environmentIntensity={envIntensity ?? 0.5}
       />
 
       <ambientLight intensity={1.0} color="#ffffff" />
@@ -339,7 +339,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
   )
 }
 
-function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists }) {
+function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists, envIntensity, setEnvIntensity }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [selectedPart, setSelectedPart] = useState('all')
   const [showEmbed, setShowEmbed] = useState(false)
@@ -375,7 +375,6 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
     try {
       const sceneData = placedFurniture.map(item => {
         const mat = nullBlobTextureUrls(item.material)
-        console.log('share serialized material:', JSON.stringify(mat))
         return { ...item, material: mat }
       })
       const res = await fetch('/api/share', {
@@ -554,8 +553,25 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
         </>
       )}
       
+      {/* Lighting */}
+      <div style={{ marginTop: '24px', borderTop: '1px solid #333', paddingTop: '16px' }}>
+        <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>LIGHTING</div>
+        <label style={{ fontSize: '12px', color: '#888' }}>
+          Intensity: {envIntensity.toFixed(2)}
+        </label>
+        <input
+          type="range"
+          min="0"
+          max="3"
+          step="0.01"
+          value={envIntensity}
+          onChange={(e) => setEnvIntensity(parseFloat(e.target.value))}
+          style={{ width: '100%', marginTop: '4px' }}
+        />
+      </div>
+
       {/* Embed / iframe generator */}
-      <div style={{ marginTop: '40px', borderTop: '1px solid #333', paddingTop: '20px' }}>
+      <div style={{ marginTop: '24px', borderTop: '1px solid #333', paddingTop: '20px' }}>
         <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>EMBED</div>
         <div style={{ display: 'flex', gap: '6px' }}>
           <button
@@ -796,7 +812,6 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
               onChange={async (e) => {
                 const file = e.target.files[0]
                 if (!file) return
-                console.log('texture selected', file.name)
                 // Optimistically show a local preview while uploading
                 const localUrl = URL.createObjectURL(file)
                 handleMaterialUpdate({ textureUrl: localUrl })
@@ -809,19 +824,14 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
                   body: file,
                 }
                 try {
-                  console.log('uploading to blob...')
                   let res = await fetch('/api/upload-texture', uploadOpts)
-                  console.log('blob response:', res)
                   if (!res.ok) {
                     // Retry once after 1 second (handles cold-start 500s)
                     await new Promise(r => setTimeout(r, 1000))
-                    console.log('retrying upload...')
                     res = await fetch('/api/upload-texture', uploadOpts)
-                    console.log('blob retry response:', res)
                   }
                   if (res.ok) {
                     const { url } = await res.json()
-                    console.log('textureUrl set to:', url)
                     handleMaterialUpdate({ textureUrl: url })
                   }
                 } catch {
@@ -891,6 +901,7 @@ function App() {
   const [isPointerLocked, setIsPointerLocked] = useState(false)
   const [showNPanel, setShowNPanel] = useState(false)
   const [zMoveActive, setZMoveActive] = useState(false)
+  const [envIntensity, setEnvIntensity] = useState(0.5)
   const history = useRef([])
 
   const saveHistory = (current) => {
@@ -994,6 +1005,8 @@ function App() {
           placedFurniture={placedFurniture}
           onUpdateMaterial={updateMaterial}
           meshLists={meshLists}
+          envIntensity={envIntensity}
+          setEnvIntensity={setEnvIntensity}
         />
       )}
 
@@ -1129,6 +1142,7 @@ function App() {
             onPointerLockChange={setIsPointerLocked}
             zMoveActive={zMoveActive}
             onDragCommit={commitHistory}
+            envIntensity={envIntensity}
           />
         </Suspense>
       </Canvas>
