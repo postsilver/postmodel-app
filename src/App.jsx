@@ -800,17 +800,25 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
                 // Optimistically show a local preview while uploading
                 const localUrl = URL.createObjectURL(file)
                 handleMaterialUpdate({ textureUrl: localUrl })
+                const uploadOpts = {
+                  method: 'POST',
+                  headers: {
+                    'content-type': file.type || 'application/octet-stream',
+                    'x-filename': file.name,
+                  },
+                  body: file,
+                }
                 try {
                   console.log('uploading to blob...')
-                  const res = await fetch('/api/upload-texture', {
-                    method: 'POST',
-                    headers: {
-                      'content-type': file.type || 'application/octet-stream',
-                      'x-filename': file.name,
-                    },
-                    body: file,
-                  })
+                  let res = await fetch('/api/upload-texture', uploadOpts)
                   console.log('blob response:', res)
+                  if (!res.ok) {
+                    // Retry once after 1 second (handles cold-start 500s)
+                    await new Promise(r => setTimeout(r, 1000))
+                    console.log('retrying upload...')
+                    res = await fetch('/api/upload-texture', uploadOpts)
+                    console.log('blob retry response:', res)
+                  }
                   if (res.ok) {
                     const { url } = await res.json()
                     console.log('textureUrl set to:', url)

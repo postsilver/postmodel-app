@@ -17,7 +17,8 @@ export default async function handler(req, res) {
     })
     return res.status(200).json({ url: blob.url })
   } catch (err) {
-    console.error('Blob upload error:', err)
-    return res.status(500).json({ error: 'Upload failed' })
+    console.error('Blob upload error:', err?.message ?? err)
+    console.error('Blob upload error stack:', err?.stack)
+    return res.status(500).json({ error: 'Upload failed', detail: err?.message })
   }
 }
