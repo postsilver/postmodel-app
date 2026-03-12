@@ -159,33 +159,27 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
       
       clonedScene.traverse((child) => {
         if (child.isMesh) {
-          // Check if we should apply to this mesh
-          const selectedPart = materialSettings.selectedPart || 'all'
-          const shouldApply = selectedPart === 'all' || selectedPart === meshIndex.toString()
-          
-          if (shouldApply) {
-            // Get material settings for this specific mesh or use global
-            const meshMaterials = materialSettings.meshMaterials || {}
-            const settings = meshMaterials[meshIndex] || materialSettings
-            
-            let texture = null
-            if (settings.textureUrl) {
-              const loader = new THREE.TextureLoader()
-              texture = loader.load(settings.textureUrl)
-              texture.wrapS = THREE.RepeatWrapping
-              texture.wrapT = THREE.RepeatWrapping
-              const scale = settings.textureScale || 1
-              texture.repeat.set(scale, scale)
-            }
-            
-            child.material = new THREE.MeshStandardMaterial({
-              color: texture ? '#ffffff' : (settings.color || '#cccccc'),
-              roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
-              metalness: settings.metalness !== undefined ? settings.metalness : 0,
-              map: texture,
-            })
+          // Always apply material to every mesh; meshMaterials overrides global per-index
+          const meshMaterials = materialSettings.meshMaterials || {}
+          const settings = meshMaterials[meshIndex] || materialSettings
+
+          let texture = null
+          if (settings.textureUrl) {
+            const loader = new THREE.TextureLoader()
+            texture = loader.load(settings.textureUrl)
+            texture.wrapS = THREE.RepeatWrapping
+            texture.wrapT = THREE.RepeatWrapping
+            const scale = settings.textureScale || 1
+            texture.repeat.set(scale, scale)
           }
-          
+
+          child.material = new THREE.MeshStandardMaterial({
+            color: texture ? '#ffffff' : (settings.color || '#cccccc'),
+            roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
+            metalness: settings.metalness !== undefined ? settings.metalness : 0,
+            map: texture,
+          })
+
           meshIndex++
         }
       })
@@ -799,11 +793,27 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
             <input
               type="file"
               accept="image/*"
-              onChange={(e) => {
+              onChange={async (e) => {
                 const file = e.target.files[0]
-                if (file) {
-                  const url = URL.createObjectURL(file)
-                  handleMaterialUpdate({ textureUrl: url })
+                if (!file) return
+                // Optimistically show a local preview while uploading
+                const localUrl = URL.createObjectURL(file)
+                handleMaterialUpdate({ textureUrl: localUrl })
+                try {
+                  const res = await fetch('/api/upload-texture', {
+                    method: 'POST',
+                    headers: {
+                      'content-type': file.type || 'application/octet-stream',
+                      'x-filename': file.name,
+                    },
+                    body: file,
+                  })
+                  if (res.ok) {
+                    const { url } = await res.json()
+                    handleMaterialUpdate({ textureUrl: url })
+                  }
+                } catch {
+                  // local blob url stays as fallback; won't survive share links
                 }
               }}
               style={{

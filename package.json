@@ -15,6 +15,7 @@
     "@react-three/postprocessing": "^3.0.4",
     "@upstash/redis": "^1.36.3",
     "@use-gesture/react": "^10.3.1",
+    "@vercel/blob": "^2.3.1",
     "nanoid": "^5.1.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

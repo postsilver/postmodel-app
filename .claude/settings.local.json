@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install @upstash/redis nanoid react-router-dom)"
+      "Bash(npm install @upstash/redis nanoid react-router-dom)",
+      "Bash(git add:*)"
     ]
   }
 }
