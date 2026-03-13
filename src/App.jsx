@@ -109,7 +109,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
+function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -121,6 +121,12 @@ function DraggableMeshBase({ clonedScene, position, floorPlane, onDragStart, onD
       setArrowBase(box.min.y - groupRef.current.position.y)
     }
   }, [clonedScene])
+
+  useEffect(() => {
+    if (groupRef.current && scale) {
+      groupRef.current.scale.set(scale.x ?? 1, scale.y ?? 1, scale.z ?? 1)
+    }
+  }, [scale])
 
   useEffect(() => {
     if (clonedScene && onMeshListUpdate) {
@@ -380,6 +386,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
         const isGltf = !fmt || fmt === 'glb' || fmt === 'gltf'
         const sharedProps = {
           position: item.position,
+          scale: item.scale ?? { x: 1, y: 1, z: 1 },
           floorPlane,
           onDragStart: () => setIsDragging(true),
           onDragEnd: () => setIsDragging(false),
@@ -990,6 +997,8 @@ function App() {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState(null)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [scaleLocked, setScaleLocked] = useState(true)
+  const [scaleInputs, setScaleInputs] = useState({ x: '1', y: '1', z: '1' })
   const uploadInputRef = useRef()
   const history = useRef([])
 
@@ -1044,6 +1053,7 @@ function App() {
       instanceId: `${catalogItem.id}-${Date.now()}`,
       position: [spawnOffset * 0.5, 0, spawnOffset * 0.5],
       rotation: { x: 0, y: 0 },
+      scale: { x: 1, y: 1, z: 1 },
       material: { ...DEFAULT_MATERIAL, meshMaterials: {} },
     }
     saveHistory(placedFurniture)
@@ -1073,6 +1083,41 @@ function App() {
     }))
   }
 
+  // Sync scale inputs when selection changes
+  useEffect(() => {
+    const item = placedFurniture.find(i => i.instanceId === selectedId)
+    if (item) {
+      const s = item.scale ?? { x: 1, y: 1, z: 1 }
+      setScaleInputs({ x: String(s.x), y: String(s.y), z: String(s.z) })
+    }
+  }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleScaleChange = (axis, rawVal) => {
+    const newInputs = { ...scaleInputs, [axis]: rawVal }
+    setScaleInputs(newInputs)
+    const newNum = parseFloat(rawVal)
+    if (!isFinite(newNum) || newNum <= 0) return
+    const current = placedFurniture.find(i => i.instanceId === selectedId)?.scale ?? { x: 1, y: 1, z: 1 }
+    let newScale
+    const prev = parseFloat(scaleInputs[axis])
+    if (scaleLocked && isFinite(prev) && prev > 0) {
+      const ratio = newNum / prev
+      newScale = {
+        x: axis === 'x' ? newNum : current.x * ratio,
+        y: axis === 'y' ? newNum : current.y * ratio,
+        z: axis === 'z' ? newNum : current.z * ratio,
+      }
+      setScaleInputs({
+        x: axis === 'x' ? rawVal : String(Math.round(newScale.x * 10000) / 10000),
+        y: axis === 'y' ? rawVal : String(Math.round(newScale.y * 10000) / 10000),
+        z: axis === 'z' ? rawVal : String(Math.round(newScale.z * 10000) / 10000),
+      })
+    } else {
+      newScale = { ...current, [axis]: newNum }
+    }
+    updateScale(selectedId, newScale)
+  }
+
   const commitHistory = () => {
     history.current = [...history.current.slice(-9), JSON.parse(JSON.stringify(placedFurniture))]
   }
@@ -1080,6 +1125,12 @@ function App() {
   const updatePosition = (instanceId, newPosition) => {
     setPlacedFurniture(prev => prev.map(item =>
       item.instanceId === instanceId ? { ...item, position: newPosition } : item
+    ))
+  }
+
+  const updateScale = (instanceId, newScale) => {
+    setPlacedFurniture(prev => prev.map(item =>
+      item.instanceId === instanceId ? { ...item, scale: newScale } : item
     ))
   }
 
@@ -1111,6 +1162,7 @@ function App() {
         instanceId: `upload-${Date.now()}`,
         position: [capturedOffset * 0.5, 0, capturedOffset * 0.5],
         rotation: { x: 0, y: 0 },
+        scale: { x: 1, y: 1, z: 1 },
         material: { ...DEFAULT_MATERIAL, meshMaterials: {} },
       }
       saveHistory(placedFurniture)
@@ -1224,6 +1276,50 @@ function App() {
               >
                 ↑ Upload Mesh
               </button>
+
+              {selectedId && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '24px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '12px', color: '#888' }}>SCALE</span>
+                    <button
+                      onClick={() => setScaleLocked(prev => !prev)}
+                      title={scaleLocked ? 'Unlock axes' : 'Lock axes'}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: scaleLocked ? '#4a9eff' : '#888',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        padding: '0 2px',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {scaleLocked ? '🔗' : '⛓'}
+                    </button>
+                  </div>
+                  {['x', 'y', 'z'].map(axis => (
+                    <div key={axis} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '12px', color: '#888', width: '10px' }}>{axis.toUpperCase()}</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.001"
+                        value={scaleInputs[axis]}
+                        onChange={(e) => handleScaleChange(axis, e.target.value)}
+                        style={{
+                          flex: 1,
+                          background: '#333',
+                          border: 'none',
+                          borderRadius: '4px',
+                          color: 'white',
+                          padding: '6px 8px',
+                          fontSize: '12px',
+                        }}
+                      />
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           )}
 
