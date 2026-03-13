@@ -108,30 +108,10 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
-  const { scene } = useGLTF(path)
+function DraggableMeshBase({ clonedScene, position, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
-
-  const clonedScene = useMemo(() => {
-    const clone = scene.clone(true)
-    const box = new THREE.Box3().setFromObject(clone)
-    const center = new THREE.Vector3()
-    box.getCenter(center)
-    clone.traverse((child) => {
-      if (child.isMesh && child.geometry) {
-        child.geometry = child.geometry.clone()
-        // Center X and Z, floor-snap Y (bottom at 0)
-        child.geometry.translate(
-          -center.x,
-          -box.min.y,
-          -center.z
-        )
-      }
-    })
-    return clone
-  }, [scene])
 
   const [arrowBase, setArrowBase] = useState(0)
   useEffect(() => {
@@ -141,33 +121,25 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
     }
   }, [clonedScene])
 
-  // Get list of meshes and report to parent
   useEffect(() => {
     if (clonedScene && onMeshListUpdate) {
       const meshes = []
       clonedScene.traverse((child) => {
         if (child.isMesh) {
-          meshes.push({
-            name: child.name || `Mesh ${meshes.length + 1}`,
-            uuid: child.uuid
-          })
+          meshes.push({ name: child.name || `Mesh ${meshes.length + 1}`, uuid: child.uuid })
         }
       })
       onMeshListUpdate(meshes)
     }
   }, [clonedScene, onMeshListUpdate])
-  
-  // Apply materials
+
   useEffect(() => {
     if (clonedScene && materialSettings) {
       let meshIndex = 0
-      
       clonedScene.traverse((child) => {
         if (child.isMesh) {
-          // Always apply material to every mesh; meshMaterials overrides global per-index
           const meshMaterials = materialSettings.meshMaterials || {}
           const settings = meshMaterials[meshIndex] || materialSettings
-
           let texture = null
           if (settings.textureUrl) {
             const loader = new THREE.TextureLoader()
@@ -175,23 +147,20 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
             texture.colorSpace = THREE.SRGBColorSpace
             texture.wrapS = THREE.RepeatWrapping
             texture.wrapT = THREE.RepeatWrapping
-            const scale = settings.textureScale || 1
-            texture.repeat.set(scale, scale)
+            texture.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
           }
-
           child.material = new THREE.MeshStandardMaterial({
             color: texture ? '#ffffff' : (settings.color || '#cccccc'),
             roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
             metalness: settings.metalness !== undefined ? settings.metalness : 0,
             map: texture,
           })
-
           meshIndex++
         }
       })
     }
   }, [clonedScene, materialSettings])
-  
+
   const bind = useDrag(({ active, first, last, event }) => {
     if (first) {
       onDragStart()
@@ -201,7 +170,7 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
         event.ray.intersectPlane(floorPlane, intersect)
         offset.current = [
           groupRef.current.position.x - intersect.x,
-          groupRef.current.position.z - intersect.z
+          groupRef.current.position.z - intersect.z,
         ]
       }
     }
@@ -210,25 +179,22 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
       onDragEnd()
       if (onPositionChange) onPositionChange([...pos.current])
     }
-
     if (active && event.ray) {
       const intersect = new THREE.Vector3()
       event.ray.intersectPlane(floorPlane, intersect)
       pos.current = [
         intersect.x + offset.current[0],
         position[1],
-        intersect.z + offset.current[1]
+        intersect.z + offset.current[1],
       ]
       groupRef.current.position.set(...pos.current)
     }
   }, { pointerEvents: true })
 
+  if (!clonedScene) return null
+
   return (
-    <group
-      ref={groupRef}
-      position={position}
-      {...(isEmbed ? {} : bind())}
-    >
+    <group ref={groupRef} position={position} {...(isEmbed ? {} : bind())}>
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
@@ -240,6 +206,98 @@ function DraggableFurniture({ path, position, floorPlane, onDragStart, onDragEnd
       )}
     </group>
   )
+}
+
+function DraggableFurniture({ path, ...rest }) {
+  const { scene } = useGLTF(path)
+  const clonedScene = useMemo(() => {
+    const clone = scene.clone(true)
+    const box = new THREE.Box3().setFromObject(clone)
+    const center = new THREE.Vector3()
+    box.getCenter(center)
+    clone.traverse((child) => {
+      if (child.isMesh && child.geometry) {
+        child.geometry = child.geometry.clone()
+        child.geometry.translate(-center.x, -box.min.y, -center.z)
+      }
+    })
+    return clone
+  }, [scene])
+  return <DraggableMeshBase clonedScene={clonedScene} {...rest} />
+}
+
+function floorSnap(obj3d) {
+  const box = new THREE.Box3().setFromObject(obj3d)
+  const center = new THREE.Vector3()
+  box.getCenter(center)
+  obj3d.traverse((child) => {
+    if (child.isMesh && child.geometry) {
+      child.geometry = child.geometry.clone()
+      child.geometry.translate(-center.x, -box.min.y, -center.z)
+    }
+  })
+}
+
+async function loadMesh(sourceUrl, fileFormat) {
+  const ext = fileFormat?.toLowerCase()
+  let obj3d = null
+
+  if (ext === 'obj') {
+    const { OBJLoader } = await import('three/examples/jsm/loaders/OBJLoader.js')
+    obj3d = await new Promise((resolve, reject) =>
+      new OBJLoader().load(sourceUrl, resolve, undefined, reject)
+    )
+  } else if (ext === 'stl') {
+    const { STLLoader } = await import('three/examples/jsm/loaders/STLLoader.js')
+    const geom = await new Promise((resolve, reject) =>
+      new STLLoader().load(sourceUrl, resolve, undefined, reject)
+    )
+    geom.computeVertexNormals()
+    const group = new THREE.Group()
+    group.add(new THREE.Mesh(geom, new THREE.MeshStandardMaterial()))
+    obj3d = group
+  } else if (ext === 'fbx') {
+    const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js')
+    obj3d = await new Promise((resolve, reject) =>
+      new FBXLoader().load(sourceUrl, resolve, undefined, reject)
+    )
+  } else if (ext === 'stp' || ext === 'step') {
+    const { default: initOpenCascade } = await import('occt-import-js')
+    const occt = await initOpenCascade()
+    const buffer = await fetch(sourceUrl).then((r) => r.arrayBuffer())
+    const result = occt.ReadStepFile(new Uint8Array(buffer), null)
+    if (!result.success) throw new Error('STEP parse failed')
+    const group = new THREE.Group()
+    for (const mesh of result.meshes) {
+      const geom = new THREE.BufferGeometry()
+      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(mesh.attributes.position.array), 3))
+      if (mesh.attributes.normal) {
+        geom.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(mesh.attributes.normal.array), 3))
+      }
+      if (mesh.index) {
+        geom.setIndex(new THREE.BufferAttribute(new Uint32Array(mesh.index.array), 1))
+      } else {
+        geom.computeVertexNormals()
+      }
+      group.add(new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: '#cccccc', side: THREE.DoubleSide })))
+    }
+    obj3d = group
+  }
+
+  if (!obj3d) return null
+  floorSnap(obj3d)
+  return obj3d
+}
+
+function DraggableUploadedMesh({ sourceUrl, fileFormat, ...rest }) {
+  const [clonedScene, setClonedScene] = useState(null)
+  useEffect(() => {
+    if (!sourceUrl) return
+    loadMesh(sourceUrl, fileFormat)
+      .then((obj3d) => { if (obj3d) setClonedScene(obj3d) })
+      .catch((err) => console.error('Mesh load error:', err))
+  }, [sourceUrl, fileFormat])
+  return <DraggableMeshBase clonedScene={clonedScene} {...rest} />
 }
 
 function FPSControls({ onLockChange }) {
@@ -313,26 +371,33 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
         <meshStandardMaterial color="#ffffff" roughness={0.1} metalness={0.1} />
       </mesh>
 
-      {placedFurniture.map((item) => (
-        <Suspense key={item.instanceId} fallback={null}>
-          <DraggableFurniture
-            path={item.file}
-            position={item.position}
-            floorPlane={floorPlane}
-            onDragStart={() => setIsDragging(true)}
-            onDragEnd={() => setIsDragging(false)}
-            onSelect={() => setSelectedId(item.instanceId)}
-            materialSettings={item.material}
-            onMeshListUpdate={(meshes) => onMeshListUpdate(item.instanceId, meshes)}
-            onPositionChange={(newPos) => onUpdatePosition(item.instanceId, newPos)}
-            onDragCommit={onDragCommit}
-            isEmbed={isEmbed || isFps}
-            isSelected={selectedId === item.instanceId}
-            zMoveActive={zMoveActive}
-            orbitRef={orbitRef}
-          />
-        </Suspense>
-      ))}
+      {placedFurniture.map((item) => {
+        const fmt = item.fileFormat?.toLowerCase()
+        const isGltf = !fmt || fmt === 'glb' || fmt === 'gltf'
+        const sharedProps = {
+          position: item.position,
+          floorPlane,
+          onDragStart: () => setIsDragging(true),
+          onDragEnd: () => setIsDragging(false),
+          onSelect: () => setSelectedId(item.instanceId),
+          materialSettings: item.material,
+          onMeshListUpdate: (meshes) => onMeshListUpdate(item.instanceId, meshes),
+          onPositionChange: (newPos) => onUpdatePosition(item.instanceId, newPos),
+          onDragCommit,
+          isEmbed: isEmbed || isFps,
+          isSelected: selectedId === item.instanceId,
+          zMoveActive,
+          orbitRef,
+        }
+        return (
+          <Suspense key={item.instanceId} fallback={null}>
+            {isGltf
+              ? <DraggableFurniture path={item.file || item.sourceUrl} {...sharedProps} />
+              : <DraggableUploadedMesh sourceUrl={item.sourceUrl} fileFormat={fmt} {...sharedProps} />
+            }
+          </Suspense>
+        )
+      })}
 
       {isFps
         ? <FPSControls onLockChange={onPointerLockChange} />
@@ -918,6 +983,10 @@ function App() {
   const [zMoveActive, setZMoveActive] = useState(false)
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const uploadInputRef = useRef()
   const history = useRef([])
 
   const saveHistory = (current) => {
@@ -1010,8 +1079,66 @@ function App() {
     ))
   }
 
+  const handleMeshUpload = async (file) => {
+    const ext = file.name.split('.').pop().toLowerCase()
+    const supported = ['glb', 'gltf', 'obj', 'stl', 'fbx', 'stp', 'step']
+    if (!supported.includes(ext)) {
+      setUploadError(`Unsupported format: .${ext}`)
+      setTimeout(() => setUploadError(null), 5000)
+      return
+    }
+    const capturedOffset = spawnOffset
+    setSpawnOffset(prev => (prev + 1) % 10)
+    setIsUploading(true)
+    setUploadError(null)
+    try {
+      const uploadOpts = {
+        method: 'POST',
+        headers: {
+          'content-type': file.type || 'application/octet-stream',
+          'x-filename': file.name,
+        },
+        body: file,
+      }
+      let res = await fetch('/api/upload', uploadOpts)
+      if (!res.ok) {
+        await new Promise(r => setTimeout(r, 1000))
+        res = await fetch('/api/upload', uploadOpts)
+      }
+      if (!res.ok) throw new Error('Upload failed')
+      const { url } = await res.json()
+      const isGltf = ext === 'glb' || ext === 'gltf'
+      const newItem = {
+        id: `upload-${Date.now()}`,
+        name: file.name,
+        file: isGltf ? url : null,
+        sourceUrl: url,
+        fileFormat: ext,
+        instanceId: `upload-${Date.now()}`,
+        position: [capturedOffset * 0.5, 0, capturedOffset * 0.5],
+        rotation: { x: 0, y: 0 },
+        material: { ...DEFAULT_MATERIAL, meshMaterials: {} },
+      }
+      saveHistory(placedFurniture)
+      setPlacedFurniture(prev => [...prev, newItem])
+    } catch (err) {
+      setUploadError(err.message || 'Upload failed')
+      setTimeout(() => setUploadError(null), 5000)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   return (
-    <div style={{ width: '100vw', height: '100vh' }}>
+    <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+      {/* Hidden file input for mesh upload */}
+      <input
+        type="file"
+        accept=".glb,.gltf,.obj,.stl,.fbx,.stp,.step"
+        style={{ display: 'none' }}
+        ref={uploadInputRef}
+        onChange={(e) => { const f = e.target.files[0]; if (f) handleMeshUpload(f); e.target.value = '' }}
+      />
       {!isEmbed && (
         <Sidebar
           furnitureCatalog={furnitureCatalog}
@@ -1085,6 +1212,24 @@ function App() {
               >
                 ↕ Y Movement <span style={{ color: '#888', fontSize: '11px' }}>Z</span>
               </button>
+
+              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>IMPORT</div>
+              <button
+                onClick={() => uploadInputRef.current?.click()}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: '#333',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                }}
+              >
+                ↑ Upload Mesh
+              </button>
             </div>
           )}
 
@@ -1133,38 +1278,97 @@ function App() {
         </div>
       )}
 
-      <Canvas
-        shadows
-        camera={{ position: [5, 5, 5], fov: 50 }}
+      {/* Viewport with drag-and-drop */}
+      <div
         style={{
-          marginLeft: isEmbed ? '0' : '240px',
-          width: isEmbed ? '100%' : 'calc(100% - 240px)',
+          position: 'absolute',
+          top: 0,
+          left: isEmbed ? 0 : 240,
+          right: 0,
+          bottom: 0,
         }}
-        gl={{
-          antialias: true,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.0
+        onDragOver={(e) => { e.preventDefault(); if (!isEmbed) setIsDragOver(true) }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false) }}
+        onDrop={(e) => {
+          e.preventDefault()
+          setIsDragOver(false)
+          if (!isEmbed) { const f = e.dataTransfer.files[0]; if (f) handleMeshUpload(f) }
         }}
       >
-        <Suspense fallback={null}>
-          <Scene
-            placedFurniture={placedFurniture}
-            selectedId={selectedId}
-            setSelectedId={setSelectedId}
-            isDragging={isDragging}
-            setIsDragging={setIsDragging}
-            onMeshListUpdate={handleMeshListUpdate}
-            onUpdatePosition={updatePosition}
-            isEmbed={isEmbed}
-            navMode={navMode}
-            onPointerLockChange={setIsPointerLocked}
-            zMoveActive={zMoveActive}
-            onDragCommit={commitHistory}
-            envIntensity={envIntensity}
-            pointLightIntensity={pointLightIntensity}
-          />
-        </Suspense>
-      </Canvas>
+        {isDragOver && !isEmbed && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 90,
+            border: '3px dashed #4a9eff',
+            background: 'rgba(74, 158, 255, 0.08)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              color: '#4a9eff', fontSize: '18px', fontFamily: 'Arial, sans-serif',
+              background: 'rgba(0,0,0,0.65)', padding: '14px 24px', borderRadius: '8px',
+            }}>
+              Drop mesh to upload
+            </div>
+          </div>
+        )}
+
+        {isUploading && (
+          <div style={{
+            position: 'absolute', inset: 0, zIndex: 250,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <div style={{
+              color: 'white', fontSize: '15px', fontFamily: 'Arial, sans-serif',
+              background: 'rgba(0,0,0,0.75)', padding: '14px 24px', borderRadius: '8px',
+            }}>
+              Uploading...
+            </div>
+          </div>
+        )}
+
+        {uploadError && (
+          <div style={{
+            position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 250, background: '#c0392b', color: 'white',
+            padding: '10px 20px', borderRadius: '6px',
+            fontFamily: 'Arial, sans-serif', fontSize: '13px', whiteSpace: 'nowrap',
+          }}>
+            {uploadError}
+          </div>
+        )}
+
+        <Canvas
+          shadows
+          camera={{ position: [5, 5, 5], fov: 50 }}
+          style={{ width: '100%', height: '100%' }}
+          gl={{
+            antialias: true,
+            toneMapping: THREE.ACESFilmicToneMapping,
+            toneMappingExposure: 1.0
+          }}
+        >
+          <Suspense fallback={null}>
+            <Scene
+              placedFurniture={placedFurniture}
+              selectedId={selectedId}
+              setSelectedId={setSelectedId}
+              isDragging={isDragging}
+              setIsDragging={setIsDragging}
+              onMeshListUpdate={handleMeshListUpdate}
+              onUpdatePosition={updatePosition}
+              isEmbed={isEmbed}
+              navMode={navMode}
+              onPointerLockChange={setIsPointerLocked}
+              zMoveActive={zMoveActive}
+              onDragCommit={commitHistory}
+              envIntensity={envIntensity}
+              pointLightIntensity={pointLightIntensity}
+            />
+          </Suspense>
+        </Canvas>
+      </div>
     </div>
   )
 }
