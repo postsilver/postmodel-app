@@ -982,7 +982,7 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
 
 function App() {
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
-  const { isLoaded, isSignedIn, userId, getToken } = useAuth()
+  const { isLoaded, isSignedIn, userId } = useAuth()
   const { user } = useUser()
 
   const [furnitureCatalog, setFurnitureCatalog] = useState([])
@@ -1140,11 +1140,10 @@ function App() {
     setIsUploading(true)
     setUploadError(null)
     try {
-      const token = await getToken()
       const blob = await upload(file.name, file, {
         access: 'public',
         handleUploadUrl: '/api/upload',
-        clientPayload: token,
+        clientPayload: userId || '',
       })
       const url = blob.url
       const isGltf = ext === 'glb' || ext === 'gltf'
