@@ -5,6 +5,8 @@ export const config = {
 };
 
 import { handleUpload } from '@vercel/blob/client';
+import { verifyToken } from '@clerk/backend';
+import { neon } from '@neondatabase/serverless';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -26,7 +28,19 @@ export default async function handler(req, res) {
       body,
       request: req,
       token: process.env.BLOB_READ_WRITE_TOKEN,
-      onBeforeGenerateToken: async (pathname) => {
+      onBeforeGenerateToken: async (pathname, clientPayload) => {
+        let userId = null;
+        if (clientPayload) {
+          try {
+            const payload = await verifyToken(clientPayload, {
+              secretKey: process.env.CLERK_SECRET_KEY,
+            });
+            userId = payload.sub;
+          } catch {
+            throw new Error('Unauthorized');
+          }
+        }
+        if (!userId) throw new Error('Unauthorized');
         return {
           allowedContentTypes: [
             'model/gltf-binary',
@@ -40,10 +54,24 @@ export default async function handler(req, res) {
           maximumSizeInBytes: 200 * 1024 * 1024,
           addRandomSuffix: true,
           allowOverwrite: false,
+          tokenPayload: JSON.stringify({ userId }),
         };
       },
-      onUploadCompleted: async ({ blob }) => {
+      onUploadCompleted: async ({ blob, tokenPayload }) => {
         console.log('Upload complete:', blob.url);
+        try {
+          const { userId } = JSON.parse(tokenPayload || '{}');
+          if (userId) {
+            const sql = neon(process.env.DATABASE_URL);
+            const id = crypto.randomUUID();
+            await sql`
+              INSERT INTO blobs (id, user_id, url, filename, size)
+              VALUES (${id}, ${userId}, ${blob.url}, ${blob.pathname}, ${blob.size ?? 0})
+            `;
+          }
+        } catch (err) {
+          console.error('Blob record insert error:', err?.message);
+        }
       },
     });
 

@@ -4,6 +4,7 @@ import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
 import { upload } from '@vercel/blob/client'
+import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1 }
 
@@ -981,6 +982,8 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
 
 function App() {
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
+  const { isLoaded, isSignedIn, userId, getToken } = useAuth()
+  const { user } = useUser()
 
   const [furnitureCatalog, setFurnitureCatalog] = useState([])
   const [placedFurniture, setPlacedFurniture] = useState([])
@@ -1137,9 +1140,11 @@ function App() {
     setIsUploading(true)
     setUploadError(null)
     try {
+      const token = await getToken()
       const blob = await upload(file.name, file, {
         access: 'public',
         handleUploadUrl: '/api/upload',
+        clientPayload: token,
       })
       const url = blob.url
       const isGltf = ext === 'glb' || ext === 'gltf'
@@ -1164,6 +1169,33 @@ function App() {
       setIsUploading(false)
     }
   }
+
+  // Auto-create user record on first sign-in
+  useEffect(() => {
+    if (!isSignedIn || !userId) return
+    const email = user?.primaryEmailAddress?.emailAddress || ''
+    getToken().then(token => {
+      fetch('/api/ensure-user', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      }).catch(() => {})
+    })
+  }, [isSignedIn, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!isEmbed && !isLoaded) return null
+  if (!isEmbed && !isSignedIn) return (
+    <div style={{
+      width: '100vw', height: '100vh',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: '#111',
+    }}>
+      <SignIn />
+    </div>
+  )
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
@@ -1209,6 +1241,9 @@ function App() {
               overflowY: 'auto',
               zIndex: 100,
             }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+                <UserButton />
+              </div>
               <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>NAVIGATION</div>
               <button
                 onClick={() => {
