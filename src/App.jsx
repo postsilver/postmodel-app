@@ -1143,9 +1143,17 @@ function App() {
       const blob = await upload(file.name, file, {
         access: 'public',
         handleUploadUrl: '/api/upload',
-        clientPayload: userId || '',
+        clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }),
       })
       const url = blob.url
+
+      // Record blob + update storage quota
+      fetch('/api/upload-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, blobUrl: url, filename: file.name, fileSize: file.size }),
+      }).catch(() => {})
+
       const isGltf = ext === 'glb' || ext === 'gltf'
       const newItem = {
         id: `upload-${Date.now()}`,
@@ -1162,8 +1170,12 @@ function App() {
       saveHistory(placedFurniture)
       setPlacedFurniture(prev => [...prev, newItem])
     } catch (err) {
-      setUploadError(err.message || 'Upload failed')
-      setTimeout(() => setUploadError(null), 5000)
+      if (err.message?.includes('storage_limit_exceeded') || err.message?.includes('403')) {
+        setUploadError('Storage limit reached. Upgrade your plan to upload more.')
+      } else {
+        setUploadError(err.message || 'Upload failed')
+      }
+      setTimeout(() => setUploadError(null), 7000)
     } finally {
       setIsUploading(false)
     }

@@ -6,11 +6,14 @@ export const config = {
 
 import { handleUpload } from '@vercel/blob/client';
 import { neon } from '@neondatabase/serverless';
+import { TIER_LIMITS } from '../src/config/tiers.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  let quotaError = null;
 
   try {
     const body = await new Promise((resolve, reject) => {
@@ -28,6 +31,23 @@ export default async function handler(req, res) {
       request: req,
       token: process.env.BLOB_READ_WRITE_TOKEN,
       onBeforeGenerateToken: async (pathname, clientPayload) => {
+        let parsed = {};
+        try { parsed = JSON.parse(clientPayload || '{}'); } catch {}
+        const { userId, fileSize } = parsed;
+
+        if (userId && fileSize) {
+          const sql = neon(process.env.DATABASE_URL);
+          const rows = await sql`SELECT storage_used, tier FROM users WHERE id = ${userId}`;
+          const user = rows[0];
+          if (user) {
+            const limit = TIER_LIMITS[user.tier] ?? TIER_LIMITS.free;
+            if (Number(user.storage_used) + fileSize > limit) {
+              quotaError = { used: Number(user.storage_used), limit };
+              throw new Error('storage_limit_exceeded');
+            }
+          }
+        }
+
         return {
           allowedContentTypes: [
             'model/gltf-binary',
@@ -44,26 +64,20 @@ export default async function handler(req, res) {
           tokenPayload: clientPayload || '',
         };
       },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
+      onUploadCompleted: async ({ blob }) => {
         console.log('Upload complete:', blob.url);
-        try {
-          const userId = tokenPayload || null;
-          if (userId) {
-            const sql = neon(process.env.DATABASE_URL);
-            const id = crypto.randomUUID();
-            await sql`
-              INSERT INTO blobs (id, user_id, url, filename, size)
-              VALUES (${id}, ${userId}, ${blob.url}, ${blob.pathname}, ${blob.size ?? 0})
-            `;
-          }
-        } catch (err) {
-          console.error('Blob record insert error:', err?.message);
-        }
       },
     });
 
     return res.status(200).json(response);
   } catch (err) {
+    if (quotaError) {
+      return res.status(403).json({
+        error: 'storage_limit_exceeded',
+        used: quotaError.used,
+        limit: quotaError.limit,
+      });
+    }
     console.error('Upload handler error:', err);
     return res.status(500).json({ error: err.message });
   }
