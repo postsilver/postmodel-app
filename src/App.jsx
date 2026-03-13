@@ -126,7 +126,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     if (groupRef.current && scale) {
       groupRef.current.scale.set(scale.x ?? 1, scale.y ?? 1, scale.z ?? 1)
     }
-  }, [scale])
+  }, [scale, clonedScene])
 
   useEffect(() => {
     if (clonedScene && onMeshListUpdate) {
@@ -1093,29 +1093,19 @@ function App() {
   }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScaleChange = (axis, rawVal) => {
-    const newInputs = { ...scaleInputs, [axis]: rawVal }
-    setScaleInputs(newInputs)
     const newNum = parseFloat(rawVal)
-    if (!isFinite(newNum) || newNum <= 0) return
-    const current = placedFurniture.find(i => i.instanceId === selectedId)?.scale ?? { x: 1, y: 1, z: 1 }
-    let newScale
-    const prev = parseFloat(scaleInputs[axis])
-    if (scaleLocked && isFinite(prev) && prev > 0) {
-      const ratio = newNum / prev
-      newScale = {
-        x: axis === 'x' ? newNum : current.x * ratio,
-        y: axis === 'y' ? newNum : current.y * ratio,
-        z: axis === 'z' ? newNum : current.z * ratio,
+    if (scaleLocked) {
+      setScaleInputs({ x: rawVal, y: rawVal, z: rawVal })
+      if (isFinite(newNum) && newNum > 0) {
+        updateScale(selectedId, { x: newNum, y: newNum, z: newNum })
       }
-      setScaleInputs({
-        x: axis === 'x' ? rawVal : String(Math.round(newScale.x * 10000) / 10000),
-        y: axis === 'y' ? rawVal : String(Math.round(newScale.y * 10000) / 10000),
-        z: axis === 'z' ? rawVal : String(Math.round(newScale.z * 10000) / 10000),
-      })
     } else {
-      newScale = { ...current, [axis]: newNum }
+      setScaleInputs(prev => ({ ...prev, [axis]: rawVal }))
+      if (isFinite(newNum) && newNum > 0) {
+        const current = placedFurniture.find(i => i.instanceId === selectedId)?.scale ?? { x: 1, y: 1, z: 1 }
+        updateScale(selectedId, { ...current, [axis]: newNum })
+      }
     }
-    updateScale(selectedId, newScale)
   }
 
   const commitHistory = () => {
