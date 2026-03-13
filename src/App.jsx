@@ -264,7 +264,10 @@ async function loadMesh(sourceUrl, fileFormat) {
     )
   } else if (ext === 'stp' || ext === 'step') {
     const { default: initOpenCascade } = await import('occt-import-js')
-    const occt = await initOpenCascade()
+    const occt = await initOpenCascade({
+      locateFile: (path) =>
+        new URL(`/node_modules/occt-import-js/dist/${path}`, import.meta.url).href,
+    })
     const buffer = await fetch(sourceUrl).then((r) => r.arrayBuffer())
     const result = occt.ReadStepFile(new Uint8Array(buffer), null)
     if (!result.success) throw new Error('STEP parse failed')
