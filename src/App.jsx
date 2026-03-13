@@ -5,6 +5,7 @@ import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
+import ProjectDashboard from './components/ProjectDashboard.jsx'
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1 }
 
@@ -1002,6 +1003,10 @@ function App() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [scaleLocked, setScaleLocked] = useState(true)
   const [scaleInputs, setScaleInputs] = useState({ x: '1', y: '1', z: '1' })
+  const [appScreen, setAppScreen] = useState('dashboard')
+  const [currentProjectId, setCurrentProjectId] = useState(null)
+  const [currentProjectName, setCurrentProjectName] = useState(null)
+  const [saveToast, setSaveToast] = useState(null)
   const uploadInputRef = useRef()
   const history = useRef([])
 
@@ -1194,6 +1199,60 @@ function App() {
     }
   }
 
+  const handleNewProject = () => {
+    setPlacedFurniture([])
+    setSelectedId(null)
+    setCurrentProjectId(null)
+    setCurrentProjectName(null)
+    setEnvIntensity(0.09)
+    setPointLightIntensity(1.0)
+    history.current = []
+    setAppScreen('editor')
+  }
+
+  const handleOpenProject = (projectId, projectName, sceneJson) => {
+    const { furniture, lighting } = sceneJson
+    setPlacedFurniture(furniture ?? [])
+    setSelectedId(null)
+    if (lighting) {
+      if (lighting.envIntensity != null) setEnvIntensity(lighting.envIntensity)
+      if (lighting.pointLightIntensity != null) setPointLightIntensity(lighting.pointLightIntensity)
+    }
+    history.current = []
+    setCurrentProjectId(projectId)
+    setCurrentProjectName(projectName)
+    setAppScreen('editor')
+  }
+
+  const handleSaveProject = async () => {
+    let name = currentProjectName
+    if (!name) {
+      name = window.prompt('Project name:')
+      if (!name?.trim()) return
+      name = name.trim()
+    }
+    const sceneJson = {
+      furniture: placedFurniture.map(item => ({ ...item, material: nullBlobTextureUrls(item.material) })),
+      lighting: { envIntensity, pointLightIntensity },
+    }
+    try {
+      const res = await fetch('/api/project/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, projectId: currentProjectId, name, sceneJson }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setCurrentProjectId(data.projectId)
+      setCurrentProjectName(name)
+      setSaveToast('Project saved')
+      setTimeout(() => setSaveToast(null), 3000)
+    } catch (err) {
+      setSaveToast(`Save failed: ${err.message}`)
+      setTimeout(() => setSaveToast(null), 4000)
+    }
+  }
+
   // Auto-create user record on first sign-in
   useEffect(() => {
     if (!isSignedIn || !userId) return
@@ -1214,6 +1273,14 @@ function App() {
     }}>
       <SignIn />
     </div>
+  )
+
+  if (!isEmbed && appScreen === 'dashboard') return (
+    <ProjectDashboard
+      userId={userId}
+      onNewProject={handleNewProject}
+      onOpenProject={handleOpenProject}
+    />
   )
 
   return (
@@ -1260,9 +1327,31 @@ function App() {
               overflowY: 'auto',
               zIndex: 100,
             }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <button
+                  onClick={() => setAppScreen('dashboard')}
+                  style={{
+                    background: 'none', border: 'none', color: '#888',
+                    cursor: 'pointer', fontSize: '13px', padding: '4px 0',
+                  }}
+                >
+                  ← Projects
+                </button>
                 <UserButton />
               </div>
+
+              <button
+                onClick={handleSaveProject}
+                style={{
+                  width: '100%', padding: '10px',
+                  background: '#1a5c2a', border: 'none', borderRadius: '6px',
+                  color: 'white', cursor: 'pointer', fontSize: '13px',
+                  marginBottom: '16px',
+                }}
+              >
+                {currentProjectName ? `💾 Save "${currentProjectName}"` : '💾 Save Project'}
+              </button>
+
               <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>NAVIGATION</div>
               <button
                 onClick={() => {
@@ -1470,6 +1559,18 @@ function App() {
             fontFamily: 'Arial, sans-serif', fontSize: '13px', whiteSpace: 'nowrap',
           }}>
             {uploadError}
+          </div>
+        )}
+
+        {saveToast && (
+          <div style={{
+            position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 250,
+            background: saveToast.startsWith('Save failed') ? '#c0392b' : '#1a5c2a',
+            color: 'white', padding: '10px 20px', borderRadius: '6px',
+            fontFamily: 'Arial, sans-serif', fontSize: '13px', whiteSpace: 'nowrap',
+          }}>
+            {saveToast}
           </div>
         )}
 
