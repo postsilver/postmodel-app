@@ -1173,17 +1173,12 @@ function App() {
   // Auto-create user record on first sign-in
   useEffect(() => {
     if (!isSignedIn || !userId) return
-    const email = user?.primaryEmailAddress?.emailAddress || ''
-    getToken().then(token => {
-      fetch('/api/ensure-user', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email }),
-      }).catch(() => {})
-    })
+    const email = user?.primaryEmailAddress?.emailAddress
+    fetch('/api/ensure-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, email }),
+    }).catch(() => {})
   }, [isSignedIn, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isEmbed && !isLoaded) return null
