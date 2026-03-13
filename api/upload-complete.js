@@ -15,8 +15,8 @@ export default async function handler(req, res) {
     const id = crypto.randomUUID()
 
     await sql`
-      INSERT INTO blobs (id, user_id, url, filename, size)
-      VALUES (${id}, ${userId}, ${blobUrl}, ${filename}, ${fileSize ?? 0})
+      INSERT INTO blobs (id, user_id, url, filename, size, expires_at)
+      VALUES (${id}, ${userId}, ${blobUrl}, ${filename}, ${fileSize ?? 0}, NOW() + INTERVAL '80 hours')
     `
 
     const rows = await sql`

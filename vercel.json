@@ -9,5 +9,11 @@
         { "key": "Content-Type", "value": "application/wasm" }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-blobs",
+      "schedule": "0 */6 * * *"
+    }
   ]
 }

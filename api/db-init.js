@@ -32,9 +32,12 @@ export default async function handler(req, res) {
       url TEXT NOT NULL,
       filename TEXT NOT NULL,
       size BIGINT DEFAULT 0,
+      expires_at TIMESTAMPTZ,
       created_at TIMESTAMP DEFAULT NOW()
     )
   `
+
+  await sql`ALTER TABLE blobs ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`
 
   return res.status(200).json({ ok: true })
 }

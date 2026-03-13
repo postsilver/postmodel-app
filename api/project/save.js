@@ -33,6 +33,12 @@ export default async function handler(req, res) {
       WHERE user_id = ${userId} AND project_id IS NULL
     `
 
+    // Clear expiry for all blobs in this project (saved = keep forever)
+    await sql`
+      UPDATE blobs SET expires_at = NULL
+      WHERE project_id = ${returnedId} AND user_id = ${userId}
+    `
+
     return res.status(200).json({ projectId: returnedId })
   } catch (err) {
     console.error('project/save error:', err)
