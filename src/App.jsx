@@ -3,6 +3,7 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
+import { upload } from '@vercel/blob/client'
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1 }
 
@@ -1092,21 +1093,11 @@ function App() {
     setIsUploading(true)
     setUploadError(null)
     try {
-      const uploadOpts = {
-        method: 'POST',
-        headers: {
-          'content-type': file.type || 'application/octet-stream',
-          'x-filename': file.name,
-        },
-        body: file,
-      }
-      let res = await fetch('/api/upload', uploadOpts)
-      if (!res.ok) {
-        await new Promise(r => setTimeout(r, 1000))
-        res = await fetch('/api/upload', uploadOpts)
-      }
-      if (!res.ok) throw new Error('Upload failed')
-      const { url } = await res.json()
+      const blob = await upload(file.name, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+      })
+      const url = blob.url
       const isGltf = ext === 'glb' || ext === 'gltf'
       const newItem = {
         id: `upload-${Date.now()}`,

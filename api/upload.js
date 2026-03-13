@@ -1,25 +1,21 @@
-import { put } from '@vercel/blob'
+import { handleUpload } from '@vercel/blob/client'
 
-export const config = { api: { bodyParser: false } }
+export const config = { api: { bodyParser: true } }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
-
-  const contentType = req.headers['content-type'] || 'application/octet-stream'
-  const filename = req.headers['x-filename'] || `mesh-${Date.now()}`
-
   try {
-    const blob = await put(filename, req, {
-      access: 'public',
-      contentType,
-      allowOverwrite: true,
+    const body = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => ({
+        allowedContentTypes: [],
+        tokenPayload: pathname,
+      }),
+      onUploadCompleted: async () => {},
     })
-    return res.status(200).json({ url: blob.url })
+    return res.json(body)
   } catch (err) {
-    console.error('Mesh upload error:', err?.message ?? err)
-    console.error('Mesh upload error stack:', err?.stack)
-    return res.status(500).json({ error: 'Upload failed', detail: err?.message })
+    console.error('Upload token error:', err?.message ?? err)
+    return res.status(500).json({ error: 'Token generation failed', detail: err?.message })
   }
 }
