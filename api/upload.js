@@ -38,7 +38,8 @@ export default async function handler(req, res) {
             '',
           ],
           maximumSizeInBytes: 200 * 1024 * 1024,
-          addRandomSuffix: false,
+          addRandomSuffix: true,
+          allowOverwrite: false,
         };
       },
       onUploadCompleted: async ({ blob }) => {
