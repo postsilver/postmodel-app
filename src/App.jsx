@@ -1140,6 +1140,19 @@ function App() {
     setIsUploading(true)
     setUploadError(null)
     try {
+      // Pre-flight: check quota before handing off to Vercel Blob client
+      const tokenCheck = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'blob.generate-client-token', payload: { pathname: file.name, callbackUrl: '', multipart: false, clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }) } }),
+      })
+      if (tokenCheck.status === 403) {
+        const data = await tokenCheck.json()
+        if (data.error === 'storage_limit_exceeded') {
+          throw new Error('storage_limit_exceeded')
+        }
+      }
+
       const blob = await upload(file.name, file, {
         access: 'public',
         handleUploadUrl: '/api/upload',
@@ -1170,8 +1183,8 @@ function App() {
       saveHistory(placedFurniture)
       setPlacedFurniture(prev => [...prev, newItem])
     } catch (err) {
-      if (err.message?.includes('storage_limit_exceeded') || err.message?.includes('403')) {
-        setUploadError('Storage limit reached. Upgrade your plan to upload more.')
+      if (err.message?.includes('storage_limit_exceeded')) {
+        setUploadError('Storage limit reached (100MB on free plan). Upgrade your plan to upload more.')
       } else {
         setUploadError(err.message || 'Upload failed')
       }
