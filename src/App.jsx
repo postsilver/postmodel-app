@@ -5,7 +5,6 @@ import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
-import { EffectComposer, Outline } from '@react-three/postprocessing'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 
 const StableEnvironment = memo(function StableEnvironment({ intensity }) {
@@ -116,7 +115,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef, onSelectionRef }) {
+function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -179,9 +178,18 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     }
   }, [clonedScene, materialSettings])
 
-  useEffect(() => {
-    if (isSelected && onSelectionRef) onSelectionRef(groupRef.current)
-  }, [isSelected])
+  const hullScene = useMemo(() => {
+    if (!isSelected || !clonedScene) return null
+    const hull = clonedScene.clone(true)
+    const hullMat = new THREE.MeshBasicMaterial({ color: '#1a1a2e', side: THREE.BackSide })
+    hull.traverse((child) => {
+      if (child.isMesh) {
+        child.material = hullMat
+        child.scale.multiplyScalar(1.04)
+      }
+    })
+    return hull
+  }, [clonedScene, isSelected])
 
   const bind = useDrag(({ active, first, last, event }) => {
     if (first) {
@@ -217,6 +225,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
 
   return (
     <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
+      {hullScene && <primitive object={hullScene} raycast={() => null} />}
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
@@ -372,12 +381,6 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
-  const [selectedMeshes, setSelectedMeshes] = useState([])
-
-  useEffect(() => {
-    if (!selectedId) setSelectedMeshes([])
-  }, [selectedId])
-
   return (
     <>
       <color attach="background" args={["#e0e0e0"]} />
@@ -415,13 +418,6 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           isSelected: selectedId === item.instanceId,
           zMoveActive,
           orbitRef,
-          onSelectionRef: selectedId === item.instanceId
-            ? (group) => {
-                const meshes = []
-                group?.traverse(child => { if (child.isMesh) meshes.push(child) })
-                setSelectedMeshes(meshes)
-              }
-            : undefined,
         }
         return (
           <Suspense key={item.instanceId} fallback={null}>
@@ -438,17 +434,6 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
         : <OrbitControls makeDefault enabled={!isDragging} ref={orbitRef} />
       }
 
-      <EffectComposer autoClear={false}>
-        <Outline
-          selection={selectedMeshes}
-          visibleEdgeColor={0x0033cc}
-          hiddenEdgeColor={0x0033cc}
-          edgeStrength={10}
-          edgeThickness={3}
-          blur={false}
-          xRay={false}
-        />
-      </EffectComposer>
     </>
   )
 }
