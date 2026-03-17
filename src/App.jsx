@@ -5,6 +5,7 @@ import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
+import { EffectComposer, Outline } from '@react-three/postprocessing'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1 }
@@ -111,7 +112,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
+function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef, onSelectionRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -169,6 +170,10 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
       })
     }
   }, [clonedScene, materialSettings])
+
+  useEffect(() => {
+    if (isSelected && onSelectionRef) onSelectionRef(groupRef.current)
+  }, [isSelected])
 
   const bind = useDrag(({ active, first, last, event }) => {
     if (first) {
@@ -359,6 +364,11 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
+  const [selectedObject, setSelectedObject] = useState(null)
+
+  useEffect(() => {
+    if (!selectedId) setSelectedObject(null)
+  }, [selectedId])
 
   return (
     <>
@@ -401,6 +411,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           isSelected: selectedId === item.instanceId,
           zMoveActive,
           orbitRef,
+          onSelectionRef: selectedId === item.instanceId ? setSelectedObject : undefined,
         }
         return (
           <Suspense key={item.instanceId} fallback={null}>
@@ -416,6 +427,17 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
         ? <FPSControls onLockChange={onPointerLockChange} />
         : <OrbitControls makeDefault enabled={!isDragging} ref={orbitRef} />
       }
+
+      <EffectComposer autoClear={false}>
+        <Outline
+          selection={selectedObject ? [selectedObject] : []}
+          visibleEdgeColor={0x4a9eff}
+          hiddenEdgeColor={0x4a9eff}
+          edgeStrength={5}
+          blur={false}
+          xRay={false}
+        />
+      </EffectComposer>
     </>
   )
 }
