@@ -1,11 +1,23 @@
-import { useRef, useState, useMemo, Suspense, useEffect, memo, Fragment } from 'react'
-import { Canvas, useFrame, createPortal } from '@react-three/fiber'
-import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid, Outlines } from '@react-three/drei'
+import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
+import { Canvas, useFrame } from '@react-three/fiber'
+import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
+
+const OUTLINE_VERT = `
+  uniform float thickness;
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position + normal * thickness, 1.0);
+  }
+`
+const OUTLINE_FRAG = `
+  uniform vec3 color;
+  void main() { gl_FragColor = vec4(color, 1.0); }
+`
 
 const StableEnvironment = memo(function StableEnvironment({ intensity }) {
   return <Environment preset="studio" background={false} environmentIntensity={intensity} />
@@ -178,12 +190,41 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     }
   }, [clonedScene, materialSettings])
 
-  const outlineMeshes = useMemo(() => {
-    if (!isSelected || !clonedScene) return []
-    const meshes = []
-    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
-    return meshes
-  }, [clonedScene, isSelected])
+  useEffect(() => {
+    const group = groupRef.current
+    if (!group) return
+    const prev = group.getObjectByName('__sel_outline__')
+    if (prev) { prev.geometry.dispose(); prev.material.dispose(); group.remove(prev) }
+    if (!isSelected || !clonedScene) return
+    group.updateWorldMatrix(true, true)
+    const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert()
+    const geos = []
+    clonedScene.traverse(child => {
+      if (!child.isMesh || !child.geometry) return
+      const geo = child.geometry.clone()
+      geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(invGroup, child.matrixWorld))
+      geos.push(geo)
+    })
+    if (!geos.length) return
+    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false)
+    if (geos.length > 1) geos.forEach(g => g.dispose())
+    if (!merged) return
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { thickness: { value: 0.025 }, color: { value: new THREE.Color('#ffcc00') } },
+      vertexShader: OUTLINE_VERT,
+      fragmentShader: OUTLINE_FRAG,
+      side: THREE.BackSide,
+      depthTest: true,
+      depthWrite: false,
+    })
+    const outlineMesh = new THREE.Mesh(merged, mat)
+    outlineMesh.name = '__sel_outline__'
+    outlineMesh.renderOrder = 1
+    outlineMesh.castShadow = false
+    outlineMesh.receiveShadow = false
+    group.add(outlineMesh)
+    return () => { merged.dispose(); mat.dispose(); group.remove(outlineMesh) }
+  }, [isSelected, clonedScene])
 
   const bind = useDrag(({ active, first, last, event }) => {
     if (first) {
@@ -220,11 +261,6 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
   return (
     <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
       <primitive object={clonedScene} />
-      {outlineMeshes.map(mesh => (
-        <Fragment key={mesh.uuid}>
-          {createPortal(<Outlines thickness={0.02} color="#ffcc00" screenspace={true} />, mesh)}
-        </Fragment>
-      ))}
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
           const newY = groupRef.current.position.y + delta
