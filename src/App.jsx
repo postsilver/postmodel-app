@@ -441,8 +441,8 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
       <EffectComposer autoClear={false}>
         <Outline
           selection={selectedMeshes}
-          visibleEdgeColor={0x4a9eff}
-          hiddenEdgeColor={0x4a9eff}
+          visibleEdgeColor={0x0033cc}
+          hiddenEdgeColor={0x0033cc}
           edgeStrength={10}
           edgeThickness={3}
           blur={false}
