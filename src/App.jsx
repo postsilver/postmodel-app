@@ -172,44 +172,24 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
             metalness: settings.metalness !== undefined ? settings.metalness : 0,
             map: texture,
           })
+          child.renderOrder = 0
           meshIndex++
         }
       })
     }
   }, [clonedScene, materialSettings])
 
-  // Pass 1: write stencil=1 on real mesh materials when selected; restore when deselected
-  useEffect(() => {
-    if (!clonedScene) return
-    clonedScene.traverse((child) => {
-      if (child.isMesh && child.material) {
-        child.renderOrder = isSelected ? 1 : 0
-        child.material.stencilWrite = isSelected
-        child.material.stencilRef = isSelected ? 1 : 0
-        child.material.stencilFunc = THREE.AlwaysStencilFunc
-        child.material.stencilZPass = isSelected ? THREE.ReplaceStencilOp : THREE.KeepStencilOp
-        child.material.depthWrite = true
-        child.material.needsUpdate = true
-      }
-    })
-  }, [isSelected, clonedScene, materialSettings])
-
-  // Pass 2: outline ring — draws only where stencil != 1 (outside silhouette)
-  const outlineScene = useMemo(() => {
+  // Inverted hull outline: clone with BackSide material, renderOrder=1 so it renders
+  // after the original (renderOrder=0). Depth test then masks out the interior,
+  // leaving only the silhouette ring visible.
+  const hullScene = useMemo(() => {
     if (!isSelected || !clonedScene) return null
     const hull = clonedScene.clone(true)
-    const outlineMat = new THREE.MeshBasicMaterial({
-      color: '#ffcc00',
-      stencilWrite: false,
-      stencilRef: 1,
-      stencilFunc: THREE.NotEqualStencilFunc,
-      side: THREE.FrontSide,
-      depthTest: false,
-    })
+    const hullMat = new THREE.MeshBasicMaterial({ color: '#ffcc00', side: THREE.BackSide })
     hull.traverse((child) => {
       if (child.isMesh) {
-        child.material = outlineMat
-        child.renderOrder = 2
+        child.material = hullMat
+        child.renderOrder = 1
       }
     })
     return hull
@@ -248,11 +228,11 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
   if (!clonedScene) return null
 
   return (
-    <group ref={groupRef} position={position} renderOrder={isSelected ? 1 : 0} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
+    <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
       <primitive object={clonedScene} />
-      {outlineScene && (
-        <group scale={[1.03, 1.03, 1.03]} renderOrder={2}>
-          <primitive object={outlineScene} raycast={() => null} />
+      {hullScene && (
+        <group scale={[1.04, 1.04, 1.04]}>
+          <primitive object={hullScene} raycast={() => null} />
         </group>
       )}
       {zMoveActive && isSelected && !isEmbed && (
