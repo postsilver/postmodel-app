@@ -1,6 +1,6 @@
-import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
+import { useRef, useState, useMemo, Suspense, useEffect, memo, Fragment } from 'react'
+import { Canvas, useFrame, createPortal } from '@react-three/fiber'
+import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid, Outlines } from '@react-three/drei'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three'
 import { upload } from '@vercel/blob/client'
@@ -172,27 +172,17 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
             metalness: settings.metalness !== undefined ? settings.metalness : 0,
             map: texture,
           })
-          child.renderOrder = 0
           meshIndex++
         }
       })
     }
   }, [clonedScene, materialSettings])
 
-  // Inverted hull outline: clone with BackSide material, renderOrder=1 so it renders
-  // after the original (renderOrder=0). Depth test then masks out the interior,
-  // leaving only the silhouette ring visible.
-  const hullScene = useMemo(() => {
-    if (!isSelected || !clonedScene) return null
-    const hull = clonedScene.clone(true)
-    const hullMat = new THREE.MeshBasicMaterial({ color: '#ffcc00', side: THREE.BackSide })
-    hull.traverse((child) => {
-      if (child.isMesh) {
-        child.material = hullMat
-        child.renderOrder = 1
-      }
-    })
-    return hull
+  const outlineMeshes = useMemo(() => {
+    if (!isSelected || !clonedScene) return []
+    const meshes = []
+    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
+    return meshes
   }, [clonedScene, isSelected])
 
   const bind = useDrag(({ active, first, last, event }) => {
@@ -230,11 +220,11 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
   return (
     <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
       <primitive object={clonedScene} />
-      {hullScene && (
-        <group scale={[1.04, 1.04, 1.04]}>
-          <primitive object={hullScene} raycast={() => null} />
-        </group>
-      )}
+      {outlineMeshes.map(mesh => (
+        <Fragment key={mesh.uuid}>
+          {createPortal(<Outlines thickness={0.02} color="#ffcc00" screenspace={true} />, mesh)}
+        </Fragment>
+      ))}
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
           const newY = groupRef.current.position.y + delta
