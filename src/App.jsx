@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo, Suspense, useEffect } from 'react'
+import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
 import { useDrag } from '@use-gesture/react'
@@ -7,6 +7,10 @@ import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import { EffectComposer, Outline } from '@react-three/postprocessing'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
+
+const StableEnvironment = memo(function StableEnvironment({ intensity }) {
+  return <Environment preset="studio" background={false} environmentIntensity={intensity} />
+})
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1 }
 
@@ -158,6 +162,10 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
             texture.wrapS = THREE.RepeatWrapping
             texture.wrapT = THREE.RepeatWrapping
             texture.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
+          }
+          if (child.material) {
+            if (child.material.map) child.material.map.dispose()
+            child.material.dispose()
           }
           child.material = new THREE.MeshStandardMaterial({
             color: texture ? '#ffffff' : (settings.color || '#cccccc'),
@@ -364,21 +372,17 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
-  const [selectedObject, setSelectedObject] = useState(null)
+  const [selectedMeshes, setSelectedMeshes] = useState([])
 
   useEffect(() => {
-    if (!selectedId) setSelectedObject(null)
+    if (!selectedId) setSelectedMeshes([])
   }, [selectedId])
 
   return (
     <>
       <color attach="background" args={["#e0e0e0"]} />
 
-      <Environment
-        preset="studio"
-        background={false}
-        environmentIntensity={envIntensity ?? 0.5}
-      />
+      <StableEnvironment intensity={envIntensity ?? 0.5} />
 
       <ambientLight intensity={1.0} color="#ffffff" />
       <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
@@ -411,7 +415,13 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           isSelected: selectedId === item.instanceId,
           zMoveActive,
           orbitRef,
-          onSelectionRef: selectedId === item.instanceId ? setSelectedObject : undefined,
+          onSelectionRef: selectedId === item.instanceId
+            ? (group) => {
+                const meshes = []
+                group?.traverse(child => { if (child.isMesh) meshes.push(child) })
+                setSelectedMeshes(meshes)
+              }
+            : undefined,
         }
         return (
           <Suspense key={item.instanceId} fallback={null}>
@@ -430,7 +440,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
 
       <EffectComposer autoClear={false}>
         <Outline
-          selection={selectedObject ? [selectedObject] : []}
+          selection={selectedMeshes}
           visibleEdgeColor={0x4a9eff}
           hiddenEdgeColor={0x4a9eff}
           edgeStrength={5}
@@ -476,14 +486,14 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
     setSharing(true)
     setShareMsg(null)
     try {
-      const sceneData = placedFurniture.map(item => {
+      const furniture = placedFurniture.map(item => {
         const mat = nullBlobTextureUrls(item.material)
         return { ...item, material: mat }
       })
       const res = await fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scene: JSON.stringify(sceneData) }),
+        body: JSON.stringify({ scene: JSON.stringify({ furniture, lighting: { envIntensity, pointLightIntensity } }) }),
       })
       if (!res.ok) throw new Error('Server error')
       const { id } = await res.json()

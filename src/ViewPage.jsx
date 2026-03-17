@@ -7,6 +7,8 @@ import { Scene } from './App.jsx'
 export default function ViewPage() {
   const { id } = useParams()
   const [placedFurniture, setPlacedFurniture] = useState(null)
+  const [envIntensity, setEnvIntensity] = useState(0.09)
+  const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -15,7 +17,18 @@ export default function ViewPage() {
         if (!res.ok) throw new Error('not found')
         return res.json()
       })
-      .then(data => setPlacedFurniture(data.scene))
+      .then(data => {
+        const raw = data.scene
+        if (Array.isArray(raw)) {
+          setPlacedFurniture(raw)
+        } else {
+          setPlacedFurniture(raw.furniture ?? [])
+          if (raw.lighting) {
+            if (raw.lighting.envIntensity != null) setEnvIntensity(raw.lighting.envIntensity)
+            if (raw.lighting.pointLightIntensity != null) setPointLightIntensity(raw.lighting.pointLightIntensity)
+          }
+        }
+      })
       .catch(() => setError(true))
   }, [id])
 
@@ -66,6 +79,8 @@ export default function ViewPage() {
           onMeshListUpdate={() => {}}
           onUpdatePosition={() => {}}
           isEmbed={true}
+          envIntensity={envIntensity}
+          pointLightIntensity={pointLightIntensity}
         />
       </Suspense>
     </Canvas>
