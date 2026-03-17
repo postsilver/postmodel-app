@@ -192,10 +192,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
 
   useEffect(() => {
     const group = groupRef.current
-    if (!group) return
-    const prev = group.getObjectByName('__sel_outline__')
-    if (prev) { prev.geometry.dispose(); prev.material.dispose(); group.remove(prev) }
-    if (!isSelected || !clonedScene) return
+    if (!group || !isSelected || !clonedScene) return
     group.updateWorldMatrix(true, true)
     const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert()
     const geos = []
@@ -209,7 +206,19 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false)
     if (geos.length > 1) geos.forEach(g => g.dispose())
     if (!merged) return
-    const mat = new THREE.ShaderMaterial({
+
+    // Depth pre-pass: write depth for front AND back faces without outputting colour.
+    // This ensures the hull is occluded when the camera is inside the mesh, because the
+    // back faces (which FrontSide culls) still write depth via DoubleSide here.
+    const prePassMat = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, depthWrite: true })
+    const prePassMesh = new THREE.Mesh(merged, prePassMat)
+    prePassMesh.renderOrder = 0
+    prePassMesh.castShadow = false
+    prePassMesh.receiveShadow = false
+    group.add(prePassMesh)
+
+    // Outline: BackSide expanded along normals, tests against depth from pre-pass.
+    const outlineMat = new THREE.ShaderMaterial({
       uniforms: { thickness: { value: 0.025 }, color: { value: new THREE.Color('#ffcc00') } },
       vertexShader: OUTLINE_VERT,
       fragmentShader: OUTLINE_FRAG,
@@ -217,13 +226,19 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
       depthTest: true,
       depthWrite: false,
     })
-    const outlineMesh = new THREE.Mesh(merged, mat)
-    outlineMesh.name = '__sel_outline__'
+    const outlineMesh = new THREE.Mesh(merged, outlineMat)
     outlineMesh.renderOrder = 1
     outlineMesh.castShadow = false
     outlineMesh.receiveShadow = false
     group.add(outlineMesh)
-    return () => { merged.dispose(); mat.dispose(); group.remove(outlineMesh) }
+
+    return () => {
+      prePassMat.dispose()
+      outlineMat.dispose()
+      merged.dispose()
+      group.remove(prePassMesh)
+      group.remove(outlineMesh)
+    }
   }, [isSelected, clonedScene])
 
   const bind = useDrag(({ active, first, last, event }) => {
