@@ -178,14 +178,35 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     }
   }, [clonedScene, materialSettings])
 
-  const hullScene = useMemo(() => {
+  // Pass 1: write stencil=1 on real mesh materials when selected
+  useEffect(() => {
+    if (!clonedScene) return
+    clonedScene.traverse((child) => {
+      if (child.isMesh && child.material) {
+        child.material.stencilWrite = isSelected
+        child.material.stencilRef = isSelected ? 1 : 0
+        child.material.stencilZPass = isSelected ? THREE.ReplaceStencilOp : THREE.KeepStencilOp
+        child.material.needsUpdate = true
+      }
+    })
+  }, [isSelected, clonedScene, materialSettings])
+
+  // Pass 2: outline ring — draws only where stencil != 1 (outside silhouette)
+  const outlineScene = useMemo(() => {
     if (!isSelected || !clonedScene) return null
     const hull = clonedScene.clone(true)
-    const hullMat = new THREE.MeshBasicMaterial({ color: '#1a1a2e', side: THREE.BackSide })
+    const outlineMat = new THREE.MeshBasicMaterial({
+      color: '#ffcc00',
+      stencilWrite: false,
+      stencilRef: 1,
+      stencilFunc: THREE.NotEqualStencilFunc,
+      side: THREE.FrontSide,
+      depthTest: false,
+    })
     hull.traverse((child) => {
       if (child.isMesh) {
-        child.material = hullMat
-        child.scale.multiplyScalar(1.04)
+        child.material = outlineMat
+        child.renderOrder = 999
       }
     })
     return hull
@@ -225,8 +246,12 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
 
   return (
     <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
-      {hullScene && <primitive object={hullScene} raycast={() => null} />}
       <primitive object={clonedScene} />
+      {outlineScene && (
+        <group scale={[1.03, 1.03, 1.03]} renderOrder={999}>
+          <primitive object={outlineScene} raycast={() => null} />
+        </group>
+      )}
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
           const newY = groupRef.current.position.y + delta
@@ -1598,6 +1623,7 @@ function App() {
           style={{ width: '100%', height: '100%' }}
           gl={{
             antialias: true,
+            stencil: true,
             toneMapping: THREE.ACESFilmicToneMapping,
             toneMappingExposure: 1.0
           }}
