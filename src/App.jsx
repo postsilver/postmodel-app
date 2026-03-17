@@ -219,7 +219,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
 
     // Outline: BackSide expanded along normals, tests against depth from pre-pass.
     const outlineMat = new THREE.ShaderMaterial({
-      uniforms: { thickness: { value: 0.0175 }, color: { value: new THREE.Color('#4a9eff') } },
+      uniforms: { thickness: { value: 0.0175 }, color: { value: new THREE.Color('#89c4ff') } },
       vertexShader: OUTLINE_VERT,
       fragmentShader: OUTLINE_FRAG,
       side: THREE.BackSide,

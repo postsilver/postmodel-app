@@ -10,6 +10,8 @@ export default function ViewPage() {
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [error, setError] = useState(null)
+  const [navMode, setNavMode] = useState('orbit')
+  const [isPointerLocked, setIsPointerLocked] = useState(false)
 
   useEffect(() => {
     fetch(`/api/scene/${id}`)
@@ -59,30 +61,81 @@ export default function ViewPage() {
   )
 
   return (
-    <Canvas
-      shadows
-      camera={{ position: [5, 5, 5], fov: 50 }}
-      style={{ width: '100vw', height: '100vh' }}
-      gl={{
-        antialias: true,
-        toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 0.5,
-      }}
-    >
-      <Suspense fallback={null}>
-        <Scene
-          placedFurniture={placedFurniture}
-          selectedId={null}
-          setSelectedId={() => {}}
-          isDragging={false}
-          setIsDragging={() => {}}
-          onMeshListUpdate={() => {}}
-          onUpdatePosition={() => {}}
-          isEmbed={true}
-          envIntensity={envIntensity}
-          pointLightIntensity={pointLightIntensity}
-        />
-      </Suspense>
-    </Canvas>
+    <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+      <Canvas
+        shadows
+        camera={{ position: [5, 5, 5], fov: 50 }}
+        style={{ width: '100%', height: '100%' }}
+        gl={{
+          antialias: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 0.5,
+        }}
+      >
+        <Suspense fallback={null}>
+          <Scene
+            placedFurniture={placedFurniture}
+            selectedId={null}
+            setSelectedId={() => {}}
+            isDragging={false}
+            setIsDragging={() => {}}
+            onMeshListUpdate={() => {}}
+            onUpdatePosition={() => {}}
+            isEmbed={true}
+            navMode={navMode}
+            onPointerLockChange={setIsPointerLocked}
+            envIntensity={envIntensity}
+            pointLightIntensity={pointLightIntensity}
+          />
+        </Suspense>
+      </Canvas>
+
+      {/* Nav toggle button */}
+      <button
+        onClick={() => {
+          setNavMode(prev => prev === 'orbit' ? 'fps' : 'orbit')
+          setIsPointerLocked(false)
+        }}
+        style={{
+          position: 'absolute',
+          bottom: '20px',
+          right: '20px',
+          padding: '8px 14px',
+          background: 'rgba(30, 30, 30, 0.85)',
+          border: '1px solid #444',
+          borderRadius: '6px',
+          color: 'white',
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontFamily: 'Arial, sans-serif',
+          zIndex: 100,
+          userSelect: 'none',
+        }}
+      >
+        {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
+      </button>
+
+      {/* FPS click-to-lock prompt */}
+      {navMode === 'fps' && !isPointerLocked && (
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 200,
+          background: 'rgba(0, 0, 0, 0.7)',
+          color: 'white',
+          padding: '20px 30px',
+          borderRadius: '8px',
+          textAlign: 'center',
+          fontSize: '14px',
+          fontFamily: 'Arial, sans-serif',
+          lineHeight: '1.6',
+          pointerEvents: 'none',
+        }}>
+          Click to look around · WASD to move · ESC to exit
+        </div>
+      )}
+    </div>
   )
 }
