@@ -203,7 +203,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
   if (!clonedScene) return null
 
   return (
-    <group ref={groupRef} position={position} {...(isEmbed ? {} : bind())}>
+    <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
