@@ -68,8 +68,9 @@ export default function ViewPage() {
         style={{ width: '100%', height: '100%' }}
         gl={{
           antialias: true,
+          stencil: true,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 0.5,
+          toneMappingExposure: 1.0,
         }}
       >
         <Suspense fallback={null}>
