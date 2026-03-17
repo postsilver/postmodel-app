@@ -219,7 +219,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
 
     // Outline: BackSide expanded along normals, tests against depth from pre-pass.
     const outlineMat = new THREE.ShaderMaterial({
-      uniforms: { thickness: { value: 0.025 }, color: { value: new THREE.Color('#ffcc00') } },
+      uniforms: { thickness: { value: 0.0175 }, color: { value: new THREE.Color('#4a9eff') } },
       vertexShader: OUTLINE_VERT,
       fragmentShader: OUTLINE_FRAG,
       side: THREE.BackSide,
@@ -1076,6 +1076,7 @@ function App() {
   const [saveToast, setSaveToast] = useState(null)
   const uploadInputRef = useRef()
   const history = useRef([])
+  const canvasPointerDown = useRef(null)
 
   const saveHistory = (current) => {
     history.current = [...history.current.slice(-19), current]
@@ -1650,6 +1651,14 @@ function App() {
             stencil: true,
             toneMapping: THREE.ACESFilmicToneMapping,
             toneMappingExposure: 1.0
+          }}
+          onPointerDown={e => { canvasPointerDown.current = { x: e.clientX, y: e.clientY } }}
+          onPointerMissed={e => {
+            const down = canvasPointerDown.current
+            if (!down) return
+            const dx = e.clientX - down.x
+            const dy = e.clientY - down.y
+            if (Math.sqrt(dx * dx + dy * dy) < 5) setSelectedId(null)
           }}
         >
           <Suspense fallback={null}>
