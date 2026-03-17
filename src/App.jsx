@@ -178,14 +178,17 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     }
   }, [clonedScene, materialSettings])
 
-  // Pass 1: write stencil=1 on real mesh materials when selected
+  // Pass 1: write stencil=1 on real mesh materials when selected; restore when deselected
   useEffect(() => {
     if (!clonedScene) return
     clonedScene.traverse((child) => {
       if (child.isMesh && child.material) {
+        child.renderOrder = isSelected ? 1 : 0
         child.material.stencilWrite = isSelected
         child.material.stencilRef = isSelected ? 1 : 0
+        child.material.stencilFunc = THREE.AlwaysStencilFunc
         child.material.stencilZPass = isSelected ? THREE.ReplaceStencilOp : THREE.KeepStencilOp
+        child.material.depthWrite = true
         child.material.needsUpdate = true
       }
     })
@@ -206,7 +209,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     hull.traverse((child) => {
       if (child.isMesh) {
         child.material = outlineMat
-        child.renderOrder = 999
+        child.renderOrder = 2
       }
     })
     return hull
@@ -245,10 +248,10 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
   if (!clonedScene) return null
 
   return (
-    <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
+    <group ref={groupRef} position={position} renderOrder={isSelected ? 1 : 0} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
       <primitive object={clonedScene} />
       {outlineScene && (
-        <group scale={[1.03, 1.03, 1.03]} renderOrder={999}>
+        <group scale={[1.03, 1.03, 1.03]} renderOrder={2}>
           <primitive object={outlineScene} raycast={() => null} />
         </group>
       )}
