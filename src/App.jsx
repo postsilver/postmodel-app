@@ -443,7 +443,8 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           selection={selectedMeshes}
           visibleEdgeColor={0x4a9eff}
           hiddenEdgeColor={0x4a9eff}
-          edgeStrength={5}
+          edgeStrength={10}
+          edgeThickness={3}
           blur={false}
           xRay={false}
         />
