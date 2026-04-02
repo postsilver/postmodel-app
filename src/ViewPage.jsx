@@ -1,6 +1,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
 import { Canvas } from '@react-three/fiber'
+import { EffectComposer, N8AO, SMAA } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { Scene } from './App.jsx'
 
@@ -89,6 +90,10 @@ export default function ViewPage() {
             pointLightIntensity={pointLightIntensity}
           />
         </Suspense>
+        <EffectComposer>
+          <N8AO aoRadius={0.4} intensity={1.0} distanceFalloff={1.0} screenSpaceRadius={false} />
+          <SMAA />
+        </EffectComposer>
       </Canvas>
 
       {/* Nav toggle button */}
