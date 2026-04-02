@@ -1,5 +1,5 @@
 import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
-import { Canvas, useFrame, extend } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
@@ -9,6 +9,21 @@ import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 
 extend(THREE)
+
+function RendererInit() {
+  const { gl } = useThree()
+  const initialized = useRef(false)
+
+  useEffect(() => {
+    if (initialized.current) return
+    initialized.current = true
+    if (gl.init) {
+      gl.init().catch(e => console.error('[renderer] WebGPU init failed', e))
+    }
+  }, [gl])
+
+  return null
+}
 
 const OUTLINE_VERT = `
   uniform float thickness;
@@ -1663,6 +1678,7 @@ function App() {
             if (Math.sqrt(dx * dx + dy * dy) < 5) setSelectedId(null)
           }}
         >
+          <RendererInit />
           <Suspense fallback={null}>
             <Scene
               placedFurniture={placedFurniture}
