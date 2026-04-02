@@ -1,12 +1,14 @@
 import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
-import * as THREE from 'three'
+import * as THREE from 'three/webgpu'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
+
+extend(THREE)
 
 const OUTLINE_VERT = `
   uniform float thickness;
@@ -1646,11 +1648,11 @@ function App() {
           shadows
           camera={{ position: [5, 5, 5], fov: 50 }}
           style={{ width: '100%', height: '100%' }}
-          gl={{
-            antialias: true,
-            stencil: true,
-            toneMapping: THREE.ACESFilmicToneMapping,
-            toneMappingExposure: 1.0
+          gl={(canvas) => {
+            const renderer = new THREE.WebGPURenderer({ canvas })
+            renderer.toneMapping = THREE.ACESFilmicToneMapping
+            renderer.toneMappingExposure = 0.9
+            return renderer
           }}
           onPointerDown={e => { canvasPointerDown.current = { x: e.clientX, y: e.clientY } }}
           onPointerMissed={e => {

@@ -1,9 +1,98 @@
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
-import { Canvas } from '@react-three/fiber'
-import { EffectComposer, N8AO, SMAA } from '@react-three/postprocessing'
-import * as THREE from 'three'
+import { Canvas, useThree, useFrame, extend } from '@react-three/fiber'
+import * as THREE from 'three/webgpu'
+import { pass, mrt, output } from 'three/tsl'
+import { normalView, mix as tslMix, color as tslColor } from 'three/tsl'
+import { ssgi } from 'three/examples/jsm/tsl/display/SSGINode.js'
+import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 import { Scene } from './App.jsx'
+
+extend(THREE)
+
+function SSGIPostProcessing() {
+  const { gl: renderer, scene, camera } = useThree()
+  const ppRef = useRef(null)
+  const readyRef = useRef(false)
+  const failedRef = useRef(false)
+
+  useEffect(() => {
+    if (failedRef.current) return
+    let disposed = false
+
+    async function init() {
+      try {
+        await renderer.init()
+        if (disposed) return
+
+        // Scene pass with MRT for color, normal, depth
+        const scenePass = pass(scene, camera)
+        scenePass.setMRT(mrt({
+          output: output,
+          normal: normalView,
+        }))
+
+        const scenePassColor = scenePass.getTextureNode('output')
+        const scenePassNormal = scenePass.getTextureNode('normal')
+        const scenePassDepth = scenePass.getTextureNode('depth')
+
+        // SSGI with Pascal Editor parameters
+        const ssgiEffect = ssgi(scenePassColor, scenePassDepth, scenePassNormal, camera)
+        ssgiEffect.sliceCount.value = 1
+        ssgiEffect.stepCount.value = 4
+        ssgiEffect.radius.value = 1
+        ssgiEffect.expFactor.value = 1.5
+        ssgiEffect.thickness.value = 0.5
+        ssgiEffect.backfaceLighting.value = 0.5
+        ssgiEffect.aoIntensity.value = 1.5
+        ssgiEffect.giIntensity.value = 0
+        ssgiEffect.useScreenSpaceSampling.value = true
+        ssgiEffect.useTemporalFiltering = false
+
+        // Denoise the raw SSGI
+        const denoised = denoise(ssgiEffect, scenePassDepth, scenePassNormal, camera)
+
+        // Composite: AO modulates scene color, blend with white bg via geometry alpha mask
+        const bgColor = tslColor(0xffffff)
+        const aoApplied = scenePassColor.mul(denoised)
+        const composited = tslMix(bgColor, aoApplied, scenePassColor.a)
+
+        // THREE.PostProcessing manages the full-screen quad + render output
+        const pp = new THREE.PostProcessing(renderer)
+        pp.outputNode = composited.renderOutput()
+
+        if (disposed) { pp.dispose(); return }
+        ppRef.current = pp
+        readyRef.current = true
+      } catch (e) {
+        console.warn('SSGI pipeline failed, falling back to default rendering:', e)
+        failedRef.current = true
+      }
+    }
+
+    init()
+
+    return () => {
+      disposed = true
+      readyRef.current = false
+      if (ppRef.current) { ppRef.current.dispose(); ppRef.current = null }
+    }
+  }, [renderer, scene, camera])
+
+  useFrame(() => {
+    if (!readyRef.current || !ppRef.current) return
+    try {
+      ppRef.current.render()
+    } catch (e) {
+      console.warn('SSGI render error, disabling pipeline:', e)
+      failedRef.current = true
+      if (ppRef.current) { ppRef.current.dispose(); ppRef.current = null }
+      readyRef.current = false
+    }
+  }, 1)
+
+  return null
+}
 
 export default function ViewPage() {
   const { id } = useParams()
@@ -67,11 +156,11 @@ export default function ViewPage() {
         shadows
         camera={{ position: [5, 5, 5], fov: 50 }}
         style={{ width: '100%', height: '100%' }}
-        gl={{
-          antialias: true,
-          stencil: true,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.0,
+        gl={(canvas) => {
+          const renderer = new THREE.WebGPURenderer({ canvas })
+          renderer.toneMapping = THREE.ACESFilmicToneMapping
+          renderer.toneMappingExposure = 0.9
+          return renderer
         }}
       >
         <Suspense fallback={null}>
@@ -90,10 +179,7 @@ export default function ViewPage() {
             pointLightIntensity={pointLightIntensity}
           />
         </Suspense>
-        <EffectComposer>
-          <N8AO aoRadius={0.4} intensity={1.0} distanceFalloff={1.0} screenSpaceRadius={false} />
-          <SMAA />
-        </EffectComposer>
+        <SSGIPostProcessing />
       </Canvas>
 
       {/* Nav toggle button */}
