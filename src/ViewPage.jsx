@@ -156,8 +156,8 @@ export default function ViewPage() {
         shadows
         camera={{ position: [5, 5, 5], fov: 50 }}
         style={{ width: '100%', height: '100%' }}
-        gl={(canvas) => {
-          const renderer = new THREE.WebGPURenderer({ canvas })
+        gl={(props) => {
+          const renderer = new THREE.WebGPURenderer({ canvas: props.canvas })
           renderer.toneMapping = THREE.ACESFilmicToneMapping
           renderer.toneMappingExposure = 0.9
           return renderer
