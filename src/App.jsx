@@ -25,17 +25,6 @@ function RendererInit() {
   return null
 }
 
-const OUTLINE_VERT = `
-  uniform float thickness;
-  void main() {
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position + normal * thickness, 1.0);
-  }
-`
-const OUTLINE_FRAG = `
-  uniform vec3 color;
-  void main() { gl_FragColor = vec4(color, 1.0); }
-`
-
 const StableEnvironment = memo(function StableEnvironment({ intensity }) {
   return <Environment preset="studio" background={false} environmentIntensity={intensity} />
 })
@@ -225,25 +214,35 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     if (!merged) return
 
     // Depth pre-pass: write depth for front AND back faces without outputting colour.
-    // This ensures the hull is occluded when the camera is inside the mesh, because the
-    // back faces (which FrontSide culls) still write depth via DoubleSide here.
-    const prePassMat = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, depthWrite: true })
+    const prePassMat = new THREE.MeshBasicNodeMaterial({ colorWrite: false, side: THREE.DoubleSide, depthWrite: true })
     const prePassMesh = new THREE.Mesh(merged, prePassMat)
     prePassMesh.renderOrder = 0
     prePassMesh.castShadow = false
     prePassMesh.receiveShadow = false
     group.add(prePassMesh)
 
-    // Outline: BackSide expanded along normals, tests against depth from pre-pass.
-    const outlineMat = new THREE.ShaderMaterial({
-      uniforms: { thickness: { value: 0.0175 }, color: { value: new THREE.Color('#89c4ff') } },
-      vertexShader: OUTLINE_VERT,
-      fragmentShader: OUTLINE_FRAG,
+    // Outline: BackSide hull expanded along normals (WebGPU-compatible node material).
+    const expandedGeo = merged.clone()
+    const pos = expandedGeo.getAttribute('position')
+    const nor = expandedGeo.getAttribute('normal')
+    if (pos && nor) {
+      const thickness = 0.0175
+      for (let i = 0; i < pos.count; i++) {
+        pos.setXYZ(i,
+          pos.getX(i) + nor.getX(i) * thickness,
+          pos.getY(i) + nor.getY(i) * thickness,
+          pos.getZ(i) + nor.getZ(i) * thickness
+        )
+      }
+      pos.needsUpdate = true
+    }
+    const outlineMat = new THREE.MeshBasicNodeMaterial({
+      color: new THREE.Color('#89c4ff'),
       side: THREE.BackSide,
       depthTest: true,
       depthWrite: false,
     })
-    const outlineMesh = new THREE.Mesh(merged, outlineMat)
+    const outlineMesh = new THREE.Mesh(expandedGeo, outlineMat)
     outlineMesh.renderOrder = 1
     outlineMesh.castShadow = false
     outlineMesh.receiveShadow = false
@@ -253,6 +252,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
       prePassMat.dispose()
       outlineMat.dispose()
       merged.dispose()
+      expandedGeo.dispose()
       group.remove(prePassMesh)
       group.remove(outlineMesh)
     }
