@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
 import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
-import { OrbitControls, PointerLockControls, useGLTF, Environment, Grid } from '@react-three/drei'
+import { OrbitControls, PointerLockControls, useGLTF, Environment } from '@react-three/drei'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three/webgpu'
@@ -63,24 +63,6 @@ function decodeScene(encoded) {
   } catch {
     return null
   }
-}
-
-function InfiniteGrid() {
-  return (
-    <Grid
-      position={[0, 0, 0]}
-      args={[100, 100]}
-      cellSize={1}
-      cellThickness={0.5}
-      cellColor="#b0b0b0"
-      sectionSize={5}
-      sectionThickness={1}
-      sectionColor="#888888"
-      fadeDistance={30}
-      fadeStrength={1}
-      infiniteGrid
-    />
-  )
 }
 
 
@@ -456,8 +438,6 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
       <directionalLight position={[-5, 6, -5]} intensity={0.4} />
       <pointLight position={[0, 4, 0]} intensity={pointLightIntensity ?? 1.0} />
       <pointLight position={[4, 3, -4]} intensity={pointLightIntensity ?? 1.0} />
-
-      <InfiniteGrid />
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
         <planeGeometry args={[100, 100]} />
