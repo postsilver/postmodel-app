@@ -10,6 +10,21 @@ import { Scene } from './App.jsx'
 
 extend(THREE)
 
+function RendererInit() {
+  const { gl } = useThree()
+  const initialized = useRef(false)
+
+  useEffect(() => {
+    if (initialized.current) return
+    initialized.current = true
+    if (gl.init) {
+      gl.init().catch(e => console.error('[renderer] WebGPU init failed', e))
+    }
+  }, [gl])
+
+  return null
+}
+
 function SSGIPostProcessing() {
   const { gl: renderer, scene, camera } = useThree()
   const ppRef = useRef(null)
@@ -163,6 +178,7 @@ export default function ViewPage() {
           return renderer
         }}
       >
+        <RendererInit />
         <Suspense fallback={null}>
           <Scene
             placedFurniture={placedFurniture}

@@ -184,7 +184,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
             if (child.material.map) child.material.map.dispose()
             child.material.dispose()
           }
-          child.material = new THREE.MeshStandardMaterial({
+          child.material = new THREE.MeshStandardNodeMaterial({
             color: texture ? '#ffffff' : (settings.color || '#cccccc'),
             roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
             metalness: settings.metalness !== undefined ? settings.metalness : 0,
@@ -351,7 +351,7 @@ async function loadMesh(sourceUrl, fileFormat) {
     )
     geom.computeVertexNormals()
     const group = new THREE.Group()
-    group.add(new THREE.Mesh(geom, new THREE.MeshStandardMaterial()))
+    group.add(new THREE.Mesh(geom, new THREE.MeshStandardNodeMaterial()))
     obj3d = group
   } else if (ext === 'fbx') {
     const { FBXLoader } = await import('three/examples/jsm/loaders/FBXLoader.js')
@@ -379,7 +379,7 @@ async function loadMesh(sourceUrl, fileFormat) {
       } else {
         geom.computeVertexNormals()
       }
-      group.add(new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: '#cccccc', side: THREE.DoubleSide })))
+      group.add(new THREE.Mesh(geom, new THREE.MeshStandardNodeMaterial({ color: '#cccccc', side: THREE.DoubleSide })))
     }
     obj3d = group
   }
@@ -463,7 +463,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
         <planeGeometry args={[100, 100]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.1} metalness={0.1} />
+        <meshStandardNodeMaterial color="#ffffff" roughness={0.1} metalness={0.1} />
       </mesh>
 
       {placedFurniture.map((item) => {
