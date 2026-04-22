@@ -1,5 +1,5 @@
 import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
-import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
+import { Canvas, useFrame, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment } from '@react-three/drei'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
@@ -7,23 +7,9 @@ import * as THREE from 'three/webgpu'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
+import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
 
 extend(THREE)
-
-function RendererInit() {
-  const { gl } = useThree()
-  const initialized = useRef(false)
-
-  useEffect(() => {
-    if (initialized.current) return
-    initialized.current = true
-    if (gl.init) {
-      gl.init().catch(e => console.error('[renderer] WebGPU init failed', e))
-    }
-  }, [gl])
-
-  return null
-}
 
 const StableEnvironment = memo(function StableEnvironment({ intensity }) {
   return <Environment preset="studio" background={false} environmentIntensity={intensity} />
@@ -1632,11 +1618,13 @@ function App() {
         <Canvas
           shadows
           camera={{ position: [5, 5, 5], fov: 50 }}
+          dpr={[1, 1.5]}
           style={{ width: '100%', height: '100%', background: '#e0e0e0' }}
-          gl={(props) => {
+          gl={async (props) => {
             const renderer = new THREE.WebGPURenderer({ canvas: props.canvas })
             renderer.toneMapping = THREE.ACESFilmicToneMapping
             renderer.toneMappingExposure = 0.9
+            await renderer.init()
             return renderer
           }}
           onPointerDown={e => { canvasPointerDown.current = { x: e.clientX, y: e.clientY } }}
@@ -1648,7 +1636,7 @@ function App() {
             if (Math.sqrt(dx * dx + dy * dy) < 5) setSelectedId(null)
           }}
         >
-          <RendererInit />
+          <SSGIPostProcessing />
           <Suspense fallback={null}>
             <Scene
               placedFurniture={placedFurniture}
