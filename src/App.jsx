@@ -195,15 +195,9 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     if (geos.length > 1) geos.forEach(g => g.dispose())
     if (!merged) return
 
-    // Depth pre-pass: write depth for front AND back faces without outputting colour.
-    const prePassMat = new THREE.MeshBasicNodeMaterial({ colorWrite: false, side: THREE.DoubleSide, depthWrite: true })
-    const prePassMesh = new THREE.Mesh(merged, prePassMat)
-    prePassMesh.renderOrder = 0
-    prePassMesh.castShadow = false
-    prePassMesh.receiveShadow = false
-    group.add(prePassMesh)
-
-    // Outline: BackSide hull expanded along normals (WebGPU-compatible node material).
+    // Outline: BackSide hull expanded along normals. The furniture mesh writes
+    // depth naturally so no separate pre-pass is needed — colorWrite:false on
+    // MeshBasicNodeMaterial is not honoured by WebGPU and caused white artifacts.
     const expandedGeo = merged.clone()
     const pos = expandedGeo.getAttribute('position')
     const nor = expandedGeo.getAttribute('normal')
@@ -231,11 +225,9 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
     group.add(outlineMesh)
 
     return () => {
-      prePassMat.dispose()
       outlineMat.dispose()
       merged.dispose()
       expandedGeo.dispose()
-      group.remove(prePassMesh)
       group.remove(outlineMesh)
     }
   }, [isSelected, clonedScene])
