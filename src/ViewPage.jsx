@@ -59,7 +59,7 @@ function SSGIPostProcessing() {
         ssgiEffect.expFactor.value = 1.5
         ssgiEffect.thickness.value = 0.5
         ssgiEffect.backfaceLighting.value = 0.5
-        ssgiEffect.aoIntensity.value = 1.5
+        ssgiEffect.aoIntensity.value = 0.5
         ssgiEffect.giIntensity.value = 0
         ssgiEffect.useScreenSpaceSampling.value = true
         ssgiEffect.useTemporalFiltering = false
@@ -170,7 +170,7 @@ export default function ViewPage() {
       <Canvas
         shadows
         camera={{ position: [5, 5, 5], fov: 50 }}
-        style={{ width: '100%', height: '100%' }}
+        style={{ width: '100%', height: '100%', background: '#e0e0e0' }}
         gl={(props) => {
           const renderer = new THREE.WebGPURenderer({ canvas: props.canvas })
           renderer.toneMapping = THREE.ACESFilmicToneMapping

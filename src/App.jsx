@@ -194,7 +194,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
         }
       })
     }
-  }, [clonedScene, materialSettings])
+  }, [clonedScene, JSON.stringify(materialSettings)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const group = groupRef.current
@@ -449,8 +449,6 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
   const orbitRef = useRef()
   return (
     <>
-      <color attach="background" args={["#e0e0e0"]} />
-
       <StableEnvironment intensity={envIntensity ?? 0.5} />
 
       <ambientLight intensity={1.0} color="#ffffff" />
@@ -463,7 +461,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
         <planeGeometry args={[100, 100]} />
-        <meshStandardNodeMaterial color="#ffffff" roughness={0.1} metalness={0.1} />
+        <meshStandardNodeMaterial color="#ffffff" roughness={0.1} metalness={0.1} side={THREE.DoubleSide} />
       </mesh>
 
       {placedFurniture.map((item) => {
@@ -1207,7 +1205,7 @@ function App() {
 
   const updatePosition = (instanceId, newPosition) => {
     setPlacedFurniture(prev => prev.map(item =>
-      item.instanceId === instanceId ? { ...item, position: newPosition } : item
+      item.instanceId === instanceId ? { ...item, position: newPosition, material: item.material } : item
     ))
   }
 
@@ -1662,7 +1660,7 @@ function App() {
         <Canvas
           shadows
           camera={{ position: [5, 5, 5], fov: 50 }}
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', background: '#e0e0e0' }}
           gl={(props) => {
             const renderer = new THREE.WebGPURenderer({ canvas: props.canvas })
             renderer.toneMapping = THREE.ACESFilmicToneMapping
