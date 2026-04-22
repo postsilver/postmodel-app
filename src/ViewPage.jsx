@@ -13,6 +13,7 @@ import {
   normalView,
   output,
   pass,
+  sample,
   uniform,
   vec4,
 } from 'three/tsl'
@@ -55,8 +56,8 @@ function SSGIPostProcessing() {
       const scenePassDepth = scenePass.getTextureNode('depth')
       const scenePassNormal = scenePass.getTextureNode('normal')
 
-      // Decode color-encoded normal back to direction vector
-      const sceneNormal = colorToDirection(scenePassNormal)
+      // Decode color-encoded normal back to direction vector using UV-based sampling
+      const sceneNormal = sample((uv) => colorToDirection(scenePassNormal.sample(uv)))
 
       const giPass = ssgi(scenePassColor, scenePassDepth, sceneNormal, camera)
       giPass.sliceCount.value = 1
