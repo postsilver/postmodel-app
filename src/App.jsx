@@ -476,36 +476,17 @@ export function ViewportMode({ mode, placedFurniture }) {
     cleanupRef.current.forEach(fn => fn())
     cleanupRef.current = []
 
-    if (mode === 'solid' || mode === 'rendered') return
+    if (mode !== 'mesh') return
 
     scene.traverse(obj => {
       if (!obj.isMesh) return
       const origMaterial = obj.material
-
-      if (mode === 'wireframe') {
-        // Replace surface with background-tinted mat so it writes depth (correct edge occlusion)
-        const bgMat = new THREE.MeshBasicNodeMaterial({ color: '#e0e0e0' })
-        obj.material = bgMat
-
-        const edges = new THREE.EdgesGeometry(obj.geometry, 15)
-        const lines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x444444 }))
-        obj.add(lines)
-
-        cleanupRef.current.push(() => {
-          obj.material = origMaterial
-          bgMat.dispose()
-          obj.remove(lines)
-          edges.dispose()
-          lines.material.dispose()
-        })
-      } else if (mode === 'mesh') {
-        const flatMat = new THREE.MeshBasicNodeMaterial({ color: 0xc0c0c0 })
-        obj.material = flatMat
-        cleanupRef.current.push(() => {
-          obj.material = origMaterial
-          flatMat.dispose()
-        })
-      }
+      const clayMat = new THREE.MeshStandardNodeMaterial({ color: 0x999999, roughness: 0.85, metalness: 0 })
+      obj.material = clayMat
+      cleanupRef.current.push(() => {
+        obj.material = origMaterial
+        clayMat.dispose()
+      })
     })
   }, [mode, scene, placedFurniture?.length])
 
@@ -1664,11 +1645,6 @@ function App() {
           backdropFilter: 'blur(8px)',
         }}>
           {[
-            { id: 'wireframe', title: 'Wireframe', icon: (
-              <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="10" cy="10" r="7.5"/><ellipse cx="10" cy="10" rx="3" ry="7.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/>
-              </svg>
-            )},
             { id: 'mesh', title: 'Mesh', icon: (
               <svg viewBox="0 0 20 20" width="15" height="15">
                 <path d="M10 2 L17 6 L17 14 L10 18 L3 14 L3 6 Z" fill="currentColor"/>
