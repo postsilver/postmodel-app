@@ -66,7 +66,7 @@ export default function ViewPage() {
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
       <Canvas
-        shadows
+        shadows={{ type: THREE.PCFSoftShadowMap }}
         camera={{ position: [5, 5, 5], fov: 50 }}
         dpr={[1, 1.5]}
         style={{ width: '100%', height: '100%', background: '#e0e0e0' }}

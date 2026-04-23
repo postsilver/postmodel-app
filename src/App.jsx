@@ -411,11 +411,19 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
     <>
       <StableEnvironment intensity={envIntensity ?? 0.5} />
 
-      <ambientLight intensity={1.0} color="#ffffff" />
-      <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
-      <directionalLight position={[-5, 6, -5]} intensity={0.4} />
-      <pointLight position={[0, 4, 0]} intensity={pointLightIntensity ?? 1.0} />
-      <pointLight position={[4, 3, -4]} intensity={pointLightIntensity ?? 1.0} />
+      <ambientLight intensity={0.3} color="#ffffff" />
+
+      <directionalLight position={[5, 8, 5]} intensity={1.8} castShadow
+        shadow-bias={-0.002}
+        shadow-normalBias={0.3}
+        shadow-radius={3}
+        shadow-mapSize={[1024, 1024]}
+      >
+        <orthographicCamera attach="shadow-camera" left={-15} right={15} top={15} bottom={-15} near={0.5} far={50} />
+      </directionalLight>
+
+      <directionalLight position={[-4, 5, -3]} intensity={0.7} />
+      <directionalLight position={[0, 3, -8]} intensity={0.35} />
 
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
         <planeGeometry args={[100, 100]} />
@@ -687,18 +695,6 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
           step="0.01"
           value={envIntensity}
           onChange={(e) => setEnvIntensity(parseFloat(e.target.value))}
-          style={{ width: '100%', marginTop: '4px' }}
-        />
-        <label style={{ fontSize: '12px', color: '#888', marginTop: '8px', display: 'block' }}>
-          Point Lights: {pointLightIntensity.toFixed(2)}
-        </label>
-        <input
-          type="range"
-          min="0"
-          max="5"
-          step="0.01"
-          value={pointLightIntensity}
-          onChange={(e) => setPointLightIntensity(parseFloat(e.target.value))}
           style={{ width: '100%', marginTop: '4px' }}
         />
       </div>
@@ -1616,7 +1612,7 @@ function App() {
         )}
 
         <Canvas
-          shadows
+          shadows={{ type: THREE.PCFSoftShadowMap }}
           camera={{ position: [5, 5, 5], fov: 50 }}
           dpr={[1, 1.5]}
           style={{ width: '100%', height: '100%', background: '#e0e0e0' }}
