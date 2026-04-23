@@ -19,7 +19,7 @@ import {
 import { ssgi } from 'three/examples/jsm/tsl/display/SSGINode.js'
 import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 
-export default function SSGIPostProcessing() {
+export default function SSGIPostProcessing({ mode = 'rendered' }) {
   const { gl: renderer, scene, camera } = useThree()
   const ppRef = useRef(null)
   const failedRef = useRef(false)
@@ -112,7 +112,7 @@ export default function SSGIPostProcessing() {
   }, [renderer, scene, camera])
 
   useFrame(() => {
-    if (failedRef.current || !ppRef.current) {
+    if (mode !== 'rendered' || failedRef.current || !ppRef.current) {
       renderer.render(scene, camera)
       return
     }

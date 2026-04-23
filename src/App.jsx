@@ -1,5 +1,5 @@
 import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
-import { Canvas, useFrame, extend } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment } from '@react-three/drei'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
@@ -466,6 +466,19 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
 
     </>
   )
+}
+
+export function ViewportMode({ mode, placedFurniture }) {
+  const { scene } = useThree()
+  useEffect(() => {
+    scene.traverse(obj => {
+      if (obj.isMesh) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material]
+        mats.forEach(mat => { mat.wireframe = mode === 'wireframe' })
+      }
+    })
+  }, [mode, scene, placedFurniture?.length])
+  return null
 }
 
 function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists, envIntensity, setEnvIntensity, pointLightIntensity, setPointLightIntensity }) {
@@ -1034,6 +1047,7 @@ function App() {
   const [zMoveActive, setZMoveActive] = useState(false)
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
+  const [renderMode, setRenderMode] = useState('rendered')
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -1611,6 +1625,40 @@ function App() {
           </div>
         )}
 
+        {/* Viewport shading mode buttons (top-right, Blender-style) */}
+        <div style={{
+          position: 'absolute', top: '12px', right: '12px', zIndex: 100,
+          display: 'flex', gap: '2px',
+          background: 'rgba(28,28,28,0.8)', padding: '3px', borderRadius: '6px',
+          backdropFilter: 'blur(8px)',
+        }}>
+          {[
+            { id: 'wireframe', title: 'Wireframe', icon: (
+              <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="10" cy="10" r="7.5"/><ellipse cx="10" cy="10" rx="3" ry="7.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/>
+              </svg>
+            )},
+            { id: 'solid', title: 'Solid', icon: (
+              <svg viewBox="0 0 20 20" width="15" height="15"><circle cx="10" cy="10" r="7.5" fill="currentColor"/></svg>
+            )},
+            { id: 'rendered', title: 'Rendered', icon: (
+              <svg viewBox="0 0 20 20" width="15" height="15">
+                <circle cx="10" cy="10" r="7.5" fill="currentColor"/>
+                <circle cx="7.5" cy="7.5" r="2.5" fill="white" opacity="0.45"/>
+              </svg>
+            )},
+          ].map(({ id, title, icon }) => (
+            <button key={id} title={title} onClick={() => setRenderMode(id)} style={{
+              width: '28px', height: '28px', padding: 0, cursor: 'pointer',
+              border: renderMode === id ? '1px solid rgba(255,255,255,0.35)' : '1px solid transparent',
+              borderRadius: '4px',
+              background: renderMode === id ? 'rgba(100,100,100,0.9)' : 'transparent',
+              color: renderMode === id ? 'white' : 'rgba(160,160,160,0.85)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>{icon}</button>
+          ))}
+        </div>
+
         <Canvas
           shadows={{ type: THREE.PCFSoftShadowMap }}
           camera={{ position: [5, 5, 5], fov: 50 }}
@@ -1632,7 +1680,8 @@ function App() {
             if (Math.sqrt(dx * dx + dy * dy) < 5) setSelectedId(null)
           }}
         >
-          <SSGIPostProcessing />
+          <SSGIPostProcessing mode={renderMode} />
+          <ViewportMode mode={renderMode} placedFurniture={placedFurniture} />
           <Suspense fallback={null}>
             <Scene
               placedFurniture={placedFurniture}

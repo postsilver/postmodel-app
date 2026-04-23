@@ -2,7 +2,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
 import { Canvas, extend } from '@react-three/fiber'
 import * as THREE from 'three/webgpu'
-import { Scene } from './App.jsx'
+import { Scene, ViewportMode } from './App.jsx'
 import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
 
 extend(THREE)
@@ -15,6 +15,7 @@ export default function ViewPage() {
   const [error, setError] = useState(null)
   const [navMode, setNavMode] = useState('orbit')
   const [isPointerLocked, setIsPointerLocked] = useState(false)
+  const [renderMode, setRenderMode] = useState('rendered')
 
   useEffect(() => {
     fetch(`/api/scene/${id}`)
@@ -65,6 +66,40 @@ export default function ViewPage() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+      {/* Viewport shading mode buttons */}
+      <div style={{
+        position: 'absolute', top: '12px', right: '12px', zIndex: 100,
+        display: 'flex', gap: '2px',
+        background: 'rgba(28,28,28,0.8)', padding: '3px', borderRadius: '6px',
+        backdropFilter: 'blur(8px)',
+      }}>
+        {[
+          { id: 'wireframe', title: 'Wireframe', icon: (
+            <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="10" cy="10" r="7.5"/><ellipse cx="10" cy="10" rx="3" ry="7.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/>
+            </svg>
+          )},
+          { id: 'solid', title: 'Solid', icon: (
+            <svg viewBox="0 0 20 20" width="15" height="15"><circle cx="10" cy="10" r="7.5" fill="currentColor"/></svg>
+          )},
+          { id: 'rendered', title: 'Rendered', icon: (
+            <svg viewBox="0 0 20 20" width="15" height="15">
+              <circle cx="10" cy="10" r="7.5" fill="currentColor"/>
+              <circle cx="7.5" cy="7.5" r="2.5" fill="white" opacity="0.45"/>
+            </svg>
+          )},
+        ].map(({ id, title, icon }) => (
+          <button key={id} title={title} onClick={() => setRenderMode(id)} style={{
+            width: '28px', height: '28px', padding: 0, cursor: 'pointer',
+            border: renderMode === id ? '1px solid rgba(255,255,255,0.35)' : '1px solid transparent',
+            borderRadius: '4px',
+            background: renderMode === id ? 'rgba(100,100,100,0.9)' : 'transparent',
+            color: renderMode === id ? 'white' : 'rgba(160,160,160,0.85)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>{icon}</button>
+        ))}
+      </div>
+
       <Canvas
         shadows={{ type: THREE.PCFSoftShadowMap }}
         camera={{ position: [5, 5, 5], fov: 50 }}
@@ -78,6 +113,8 @@ export default function ViewPage() {
           return renderer
         }}
       >
+        <SSGIPostProcessing mode={renderMode} />
+        <ViewportMode mode={renderMode} placedFurniture={placedFurniture} />
         <Suspense fallback={null}>
           <Scene
             placedFurniture={placedFurniture}
@@ -94,7 +131,6 @@ export default function ViewPage() {
             pointLightIntensity={pointLightIntensity}
           />
         </Suspense>
-        <SSGIPostProcessing />
       </Canvas>
 
       {/* Nav toggle button */}
