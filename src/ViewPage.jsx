@@ -79,6 +79,11 @@ export default function ViewPage() {
               <circle cx="10" cy="10" r="7.5"/><ellipse cx="10" cy="10" rx="3" ry="7.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/>
             </svg>
           )},
+          { id: 'mesh', title: 'Mesh', icon: (
+            <svg viewBox="0 0 20 20" width="15" height="15">
+              <path d="M10 2 L17 6 L17 14 L10 18 L3 14 L3 6 Z" fill="currentColor"/>
+            </svg>
+          )},
           { id: 'solid', title: 'Solid', icon: (
             <svg viewBox="0 0 20 20" width="15" height="15"><circle cx="10" cy="10" r="7.5" fill="currentColor"/></svg>
           )},
