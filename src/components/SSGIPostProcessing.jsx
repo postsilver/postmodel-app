@@ -117,21 +117,12 @@ export default function SSGIPostProcessing({ mode = 'rendered' }) {
       return
     }
     try {
-      // Exclude gizmos (layer 1) from the SSGI MRT pass so they aren't dimmed by AO
-      camera.layers.set(0)
       renderer.setClearAlpha?.(0)
       ppRef.current.render()
-      // Overlay gizmos on top of the SSGI composite without clearing the framebuffer
-      camera.layers.set(1)
-      renderer.autoClear = false
-      renderer.render(scene, camera)
-      renderer.autoClear = true
-      camera.layers.enableAll()
     } catch (e) {
       console.warn('[renderer] SSGI render error, disabling pipeline:', e)
       failedRef.current = true
       if (ppRef.current) { ppRef.current.dispose(); ppRef.current = null }
-      camera.layers.enableAll()
     }
   }, 1)
 
