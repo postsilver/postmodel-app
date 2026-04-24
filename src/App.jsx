@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
 import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
-import { OrbitControls, PointerLockControls, useGLTF, Environment } from '@react-three/drei'
+import { OrbitControls, PointerLockControls, useGLTF, Environment, Html } from '@react-three/drei'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three/webgpu'
@@ -101,7 +101,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
+function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, orbitRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -120,6 +120,16 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
       groupRef.current.scale.set(scale.x ?? 1, scale.y ?? 1, scale.z ?? 1)
     }
   }, [scale, clonedScene])
+
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.rotation.set(
+        THREE.MathUtils.degToRad(rotation?.x ?? 0),
+        THREE.MathUtils.degToRad(rotation?.y ?? 0),
+        THREE.MathUtils.degToRad(rotation?.z ?? 0),
+      )
+    }
+  }, [rotation?.x, rotation?.y, rotation?.z])
 
   useEffect(() => {
     if (clonedScene && onMeshListUpdate) {
@@ -261,6 +271,53 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
           pos.current = [pos.current[0], newY, pos.current[2]]
           if (onPositionChange) onPositionChange([...pos.current])
         }} />
+      )}
+      {rotPanelActive && isSelected && !isEmbed && (
+        <Html position={[0, Math.max(1.8, -arrowBase + 1.2), 0]} style={{ pointerEvents: 'auto' }}>
+          <div style={{
+            background: '#242424',
+            border: '1px solid #3a3a3a',
+            borderRadius: '6px',
+            padding: '8px 2px 8px 10px',
+            width: '210px',
+            fontFamily: 'Arial, sans-serif',
+            fontSize: '12px',
+            color: '#ccc',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+            transform: 'translateX(14px)',
+            userSelect: 'none',
+          }}>
+            <div style={{ color: '#666', fontSize: '10px', letterSpacing: '0.08em', marginBottom: '6px', paddingRight: '8px' }}>ROTATION</div>
+            {[
+              { axis: 'x', color: '#e05252' },
+              { axis: 'y', color: '#52b352' },
+              { axis: 'z', color: '#5285e0' },
+            ].map(({ axis, color }) => (
+              <div key={axis} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', gap: '6px' }}>
+                <span style={{ color, width: '12px', fontWeight: 'bold', fontSize: '11px', flexShrink: 0 }}>{axis.toUpperCase()}</span>
+                <input
+                  type="number"
+                  step="1"
+                  value={Math.round((rotation?.[axis] ?? 0) * 10) / 10}
+                  onChange={e => onUpdateRotation(axis, parseFloat(e.target.value) || 0)}
+                  onPointerDown={e => e.stopPropagation()}
+                  style={{
+                    flex: 1,
+                    background: '#1a1a1a',
+                    border: '1px solid #3a3a3a',
+                    borderRadius: '3px',
+                    color: '#ddd',
+                    padding: '3px 6px',
+                    fontSize: '12px',
+                    outline: 'none',
+                    width: 0,
+                  }}
+                />
+                <span style={{ color: '#666', fontSize: '11px', paddingRight: '8px' }}>°</span>
+              </div>
+            ))}
+          </div>
+        </Html>
       )}
     </group>
   )
@@ -404,7 +461,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -437,6 +494,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
         const sharedProps = {
           position: item.position,
           scale: item.scale ?? { x: 1, y: 1, z: 1 },
+          rotation: item.rotation ?? { x: 0, y: 0, z: 0 },
           floorPlane,
           onDragStart: () => setIsDragging(true),
           onDragEnd: () => setIsDragging(false),
@@ -448,6 +506,8 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           isEmbed: isEmbed || isFps,
           isSelected: selectedId === item.instanceId,
           zMoveActive,
+          rotPanelActive,
+          onUpdateRotation: onUpdateRotation ? (axis, deg) => onUpdateRotation(item.instanceId, axis, deg) : undefined,
           orbitRef,
         }
         return (
@@ -1058,6 +1118,7 @@ function App() {
   const [isPointerLocked, setIsPointerLocked] = useState(false)
   const [showNPanel, setShowNPanel] = useState(false)
   const [zMoveActive, setZMoveActive] = useState(false)
+  const [rotPanelActive, setRotPanelActive] = useState(false)
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [renderMode, setRenderMode] = useState('rendered')
@@ -1083,6 +1144,7 @@ function App() {
     const onKeyDown = (e) => {
       if (e.key === 'n' || e.key === 'N') setShowNPanel(prev => !prev)
       if (!e.ctrlKey && (e.key === 'z' || e.key === 'Z')) setZMoveActive(prev => !prev)
+      if (!e.ctrlKey && (e.key === 'r' || e.key === 'R') && selectedId) setRotPanelActive(prev => !prev)
       if (e.ctrlKey && e.key === 'z') {
         if (history.current.length > 0) {
           setPlacedFurniture(history.current[history.current.length - 1])
@@ -1092,7 +1154,11 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isEmbed])
+  }, [isEmbed, selectedId])
+
+  useEffect(() => {
+    if (!selectedId) setRotPanelActive(false)
+  }, [selectedId])
 
   // Restore scene from URL hash when loaded as an embed
   useEffect(() => {
@@ -1124,7 +1190,7 @@ function App() {
       ...catalogItem,
       instanceId: `${catalogItem.id}-${Date.now()}`,
       position: [spawnOffset * 0.5, 0, spawnOffset * 0.5],
-      rotation: { x: 0, y: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
       material: { ...DEFAULT_MATERIAL, meshMaterials: {} },
     }
@@ -1190,6 +1256,14 @@ function App() {
     ))
   }
 
+  const updateRotation = (instanceId, axis, degrees) => {
+    setPlacedFurniture(prev => prev.map(item =>
+      item.instanceId === instanceId
+        ? { ...item, rotation: { ...(item.rotation ?? { x: 0, y: 0, z: 0 }), [axis]: degrees } }
+        : item
+    ))
+  }
+
 const updateScale = (instanceId, newScale) => {
     setPlacedFurniture(prev => prev.map(item =>
       item.instanceId === instanceId ? { ...item, scale: newScale } : item
@@ -1245,7 +1319,7 @@ const updateScale = (instanceId, newScale) => {
         fileFormat: ext,
         instanceId: `upload-${Date.now()}`,
         position: [capturedOffset * 0.5, 0, capturedOffset * 0.5],
-        rotation: { x: 0, y: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
         scale: { x: 1, y: 1, z: 1 },
         material: { ...DEFAULT_MATERIAL, meshMaterials: {} },
       }
@@ -1439,7 +1513,7 @@ const updateScale = (instanceId, newScale) => {
 
               <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>TRANSFORM</div>
               <button
-                onClick={() => { setZMoveActive(prev => !prev); setRMoveActive(false) }}
+                onClick={() => setZMoveActive(prev => !prev)}
                 style={{
                   width: '100%',
                   padding: '10px',
@@ -1710,6 +1784,8 @@ const updateScale = (instanceId, newScale) => {
               onDragCommit={commitHistory}
               envIntensity={envIntensity}
               pointLightIntensity={pointLightIntensity}
+              rotPanelActive={rotPanelActive}
+              onUpdateRotation={updateRotation}
             />
           </Suspense>
         </Canvas>
