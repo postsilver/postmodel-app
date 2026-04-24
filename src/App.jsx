@@ -101,11 +101,18 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotateEnd, onDragCommit, axis = 'y', color = '#ff9500' }) {
+const GIZMO_RADIUS = 1.5
+
+function RotationRing({ groupRef, orbitRef, onRotate, onRotateEnd, onDragCommit, axis = 'y', color = '#ff9500' }) {
   const { camera, gl } = useThree()
   const isDragging = useRef(false)
   const lastAngle = useRef(0)
   const lastClientY = useRef(0)
+  const meshRef = useRef()
+
+  useEffect(() => {
+    if (meshRef.current) meshRef.current.layers.set(1)
+  }, [])
 
   const getAngle = (clientX, clientY) => {
     const rect = gl.domElement.getBoundingClientRect()
@@ -156,18 +163,16 @@ function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotat
   const meshRotation = axis === 'y' ? [-Math.PI / 2, 0, 0] : [0, Math.PI / 2, 0]
 
   return (
-    <group position={[0, ringY, 0]}>
-      <mesh rotation={meshRotation}
-        castShadow={false}
-        receiveShadow={false}
-        onPointerDown={handleDown}
-        onPointerMove={handleMove}
-        onPointerUp={handleUp}
-      >
-        <torusGeometry args={[ringRadius, 0.04, 8, 64]} />
-        <meshBasicNodeMaterial color={color} depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
-      </mesh>
-    </group>
+    <mesh ref={meshRef} rotation={meshRotation}
+      castShadow={false}
+      receiveShadow={false}
+      onPointerDown={handleDown}
+      onPointerMove={handleMove}
+      onPointerUp={handleUp}
+    >
+      <torusGeometry args={[GIZMO_RADIUS, 0.04, 8, 64]} />
+      <meshBasicNodeMaterial color={color} depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
   )
 }
 
@@ -178,19 +183,11 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
   const offset = useRef([0, 0])
 
   const [arrowBase, setArrowBase] = useState(0)
-  const [ringRadius, setRingRadius] = useState(1)
-  const [ringY, setRingY] = useState(0)
 
   useEffect(() => {
     if (groupRef.current) {
       const box = new THREE.Box3().setFromObject(groupRef.current)
-      const bSize = new THREE.Vector3()
-      const bCenter = new THREE.Vector3()
-      box.getSize(bSize)
-      box.getCenter(bCenter)
       setArrowBase(box.min.y - groupRef.current.position.y)
-      setRingRadius(Math.max(bSize.x, bSize.z) / 2 + 0.35)
-      setRingY(bCenter.y - groupRef.current.position.y)
     }
   }, [clonedScene])
 
@@ -354,7 +351,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
       {rMoveActive && isSelected && !isEmbed && (
         <>
           <RotationRing
-            groupRef={groupRef} ringRadius={ringRadius} ringY={ringY}
+            groupRef={groupRef}
             orbitRef={orbitRef} onDragCommit={onDragCommit}
             axis="y" color="#ff9500"
             onRotate={(delta) => {
@@ -366,7 +363,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
             }}
           />
           <RotationRing
-            groupRef={groupRef} ringRadius={ringRadius} ringY={ringY}
+            groupRef={groupRef}
             orbitRef={orbitRef} onDragCommit={onDragCommit}
             axis="x" color="#51cf66"
             onRotate={(delta) => {
