@@ -1703,12 +1703,10 @@ const updateScale = (instanceId, newScale) => {
               setIsDragging={setIsDragging}
               onMeshListUpdate={handleMeshListUpdate}
               onUpdatePosition={updatePosition}
-              onUpdateRotation={updateRotation}
               isEmbed={isEmbed}
               navMode={navMode}
               onPointerLockChange={setIsPointerLocked}
               zMoveActive={zMoveActive}
-              rMoveActive={rMoveActive}
               onDragCommit={commitHistory}
               envIntensity={envIntensity}
               pointLightIntensity={pointLightIntensity}
