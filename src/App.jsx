@@ -158,12 +158,14 @@ function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotat
   return (
     <group position={[0, ringY, 0]}>
       <mesh rotation={meshRotation}
+        castShadow={false}
+        receiveShadow={false}
         onPointerDown={handleDown}
         onPointerMove={handleMove}
         onPointerUp={handleUp}
       >
         <torusGeometry args={[ringRadius, 0.04, 8, 64]} />
-        <meshBasicNodeMaterial color={color} depthTest={false} side={THREE.DoubleSide} />
+        <meshBasicNodeMaterial color={color} depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
     </group>
   )
