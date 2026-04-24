@@ -101,18 +101,93 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, orbitRef }) {
+function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotateEnd, onDragCommit }) {
+  const { camera, gl } = useThree()
+  const isDragging = useRef(false)
+  const lastAngle = useRef(0)
+
+  const getAngle = (clientX, clientY) => {
+    const rect = gl.domElement.getBoundingClientRect()
+    const center = new THREE.Vector3()
+    groupRef.current.getWorldPosition(center)
+    center.project(camera)
+    const cx = (center.x + 1) / 2 * rect.width
+    const cy = (-center.y + 1) / 2 * rect.height
+    return Math.atan2((clientY - rect.top) - cy, (clientX - rect.left) - cx)
+  }
+
+  const handleDown = (e) => {
+    e.stopPropagation()
+    e.target.setPointerCapture(e.pointerId)
+    isDragging.current = true
+    lastAngle.current = getAngle(e.clientX, e.clientY)
+    if (orbitRef?.current) orbitRef.current.enabled = false
+    onDragCommit?.()
+  }
+
+  const handleMove = (e) => {
+    if (!isDragging.current) return
+    e.stopPropagation()
+    const angle = getAngle(e.clientX, e.clientY)
+    let delta = angle - lastAngle.current
+    if (delta > Math.PI) delta -= 2 * Math.PI
+    if (delta < -Math.PI) delta += 2 * Math.PI
+    onRotate(-delta)
+    lastAngle.current = angle
+  }
+
+  const handleUp = (e) => {
+    if (!isDragging.current) return
+    isDragging.current = false
+    e.target.releasePointerCapture(e.pointerId)
+    if (orbitRef?.current) orbitRef.current.enabled = true
+    onRotateEnd?.()
+  }
+
+  return (
+    <group position={[0, ringY, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}
+        onPointerDown={handleDown}
+        onPointerMove={handleMove}
+        onPointerUp={handleUp}
+      >
+        <torusGeometry args={[ringRadius, 0.04, 8, 64]} />
+        <meshBasicNodeMaterial color="#ff9500" depthTest={false} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  )
+}
+
+function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onRotationChange, onDragCommit, isEmbed, isSelected, zMoveActive, rMoveActive, orbitRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
+  const rot = useRef(rotation?.y ?? 0)
   const offset = useRef([0, 0])
 
   const [arrowBase, setArrowBase] = useState(0)
+  const [ringRadius, setRingRadius] = useState(1)
+  const [ringY, setRingY] = useState(0)
+
   useEffect(() => {
     if (groupRef.current) {
       const box = new THREE.Box3().setFromObject(groupRef.current)
+      const bSize = new THREE.Vector3()
+      const bCenter = new THREE.Vector3()
+      box.getSize(bSize)
+      box.getCenter(bCenter)
       setArrowBase(box.min.y - groupRef.current.position.y)
+      setRingRadius(Math.max(bSize.x, bSize.z) / 2 + 0.35)
+      setRingY(bCenter.y - groupRef.current.position.y)
     }
   }, [clonedScene])
+
+  // Sync rotation from prop (on mount and when updated from drag-end state flush)
+  useEffect(() => {
+    if (!groupRef.current) return
+    const y = rotation?.y ?? 0
+    groupRef.current.rotation.y = y
+    rot.current = y
+  }, [rotation?.y])
 
   useEffect(() => {
     if (groupRef.current && scale) {
@@ -251,7 +326,7 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
   if (!clonedScene) return null
 
   return (
-    <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
+    <group ref={groupRef} position={position} {...(isEmbed || ((zMoveActive || rMoveActive) && isSelected) ? {} : bind())}>
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
@@ -260,6 +335,22 @@ function DraggableMeshBase({ clonedScene, position, scale, floorPlane, onDragSta
           pos.current = [pos.current[0], newY, pos.current[2]]
           if (onPositionChange) onPositionChange([...pos.current])
         }} />
+      )}
+      {rMoveActive && isSelected && !isEmbed && (
+        <RotationRing
+          groupRef={groupRef}
+          ringRadius={ringRadius}
+          ringY={ringY}
+          orbitRef={orbitRef}
+          onDragCommit={onDragCommit}
+          onRotate={(delta) => {
+            rot.current += delta
+            groupRef.current.rotation.y = rot.current
+          }}
+          onRotateEnd={() => {
+            if (onRotationChange) onRotationChange({ x: 0, y: rot.current })
+          }}
+        />
       )}
     </group>
   )
@@ -403,7 +494,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, onUpdateRotation, isEmbed, navMode, onPointerLockChange, zMoveActive, rMoveActive, onDragCommit, envIntensity, pointLightIntensity }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -442,11 +533,14 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           onSelect: () => setSelectedId(item.instanceId),
           materialSettings: item.material,
           onMeshListUpdate: (meshes) => onMeshListUpdate(item.instanceId, meshes),
+          rotation: item.rotation,
           onPositionChange: (newPos) => onUpdatePosition(item.instanceId, newPos),
+          onRotationChange: (newRot) => onUpdateRotation(item.instanceId, newRot),
           onDragCommit,
           isEmbed: isEmbed || isFps,
           isSelected: selectedId === item.instanceId,
           zMoveActive,
+          rMoveActive,
           orbitRef,
         }
         return (
@@ -1057,6 +1151,7 @@ function App() {
   const [isPointerLocked, setIsPointerLocked] = useState(false)
   const [showNPanel, setShowNPanel] = useState(false)
   const [zMoveActive, setZMoveActive] = useState(false)
+  const [rMoveActive, setRMoveActive] = useState(false)
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [renderMode, setRenderMode] = useState('rendered')
@@ -1081,7 +1176,8 @@ function App() {
     if (isEmbed) return
     const onKeyDown = (e) => {
       if (e.key === 'n' || e.key === 'N') setShowNPanel(prev => !prev)
-      if (!e.ctrlKey && (e.key === 'z' || e.key === 'Z')) setZMoveActive(prev => !prev)
+      if (!e.ctrlKey && (e.key === 'z' || e.key === 'Z')) { setZMoveActive(prev => !prev); setRMoveActive(false) }
+      if (!e.ctrlKey && (e.key === 'r' || e.key === 'R') && navMode !== 'fps') { setRMoveActive(prev => !prev); setZMoveActive(false) }
       if (e.ctrlKey && e.key === 'z') {
         if (history.current.length > 0) {
           setPlacedFurniture(history.current[history.current.length - 1])
@@ -1186,6 +1282,12 @@ function App() {
   const updatePosition = (instanceId, newPosition) => {
     setPlacedFurniture(prev => prev.map(item =>
       item.instanceId === instanceId ? { ...item, position: newPosition, material: item.material } : item
+    ))
+  }
+
+  const updateRotation = (instanceId, newRotation) => {
+    setPlacedFurniture(prev => prev.map(item =>
+      item.instanceId === instanceId ? { ...item, rotation: newRotation, material: item.material } : item
     ))
   }
 
@@ -1438,7 +1540,7 @@ function App() {
 
               <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>TRANSFORM</div>
               <button
-                onClick={() => setZMoveActive(prev => !prev)}
+                onClick={() => { setZMoveActive(prev => !prev); setRMoveActive(false) }}
                 style={{
                   width: '100%',
                   padding: '10px',
@@ -1453,6 +1555,23 @@ function App() {
                 }}
               >
                 ↕ Y Movement <span style={{ color: '#888', fontSize: '11px' }}>Z</span>
+              </button>
+              <button
+                onClick={() => { setRMoveActive(prev => !prev); setZMoveActive(false) }}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  marginTop: '4px',
+                  background: rMoveActive ? '#5c3a1a' : '#333',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  textAlign: 'left',
+                }}
+              >
+                ↻ Rotate <span style={{ color: '#888', fontSize: '11px' }}>R</span>
               </button>
 
               <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>IMPORT</div>
@@ -1703,10 +1822,12 @@ function App() {
               setIsDragging={setIsDragging}
               onMeshListUpdate={handleMeshListUpdate}
               onUpdatePosition={updatePosition}
+              onUpdateRotation={updateRotation}
               isEmbed={isEmbed}
               navMode={navMode}
               onPointerLockChange={setIsPointerLocked}
               zMoveActive={zMoveActive}
+              rMoveActive={rMoveActive}
               onDragCommit={commitHistory}
               envIntensity={envIntensity}
               pointLightIntensity={pointLightIntensity}
