@@ -101,10 +101,11 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotateEnd, onDragCommit }) {
+function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotateEnd, onDragCommit, axis = 'y', color = '#ff9500' }) {
   const { camera, gl } = useThree()
   const isDragging = useRef(false)
   const lastAngle = useRef(0)
+  const lastClientY = useRef(0)
 
   const getAngle = (clientX, clientY) => {
     const rect = gl.domElement.getBoundingClientRect()
@@ -120,7 +121,8 @@ function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotat
     e.stopPropagation()
     e.target.setPointerCapture(e.pointerId)
     isDragging.current = true
-    lastAngle.current = getAngle(e.clientX, e.clientY)
+    if (axis === 'y') lastAngle.current = getAngle(e.clientX, e.clientY)
+    else lastClientY.current = e.clientY
     if (orbitRef?.current) orbitRef.current.enabled = false
     onDragCommit?.()
   }
@@ -128,12 +130,18 @@ function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotat
   const handleMove = (e) => {
     if (!isDragging.current) return
     e.stopPropagation()
-    const angle = getAngle(e.clientX, e.clientY)
-    let delta = angle - lastAngle.current
-    if (delta > Math.PI) delta -= 2 * Math.PI
-    if (delta < -Math.PI) delta += 2 * Math.PI
-    onRotate(-delta)
-    lastAngle.current = angle
+    if (axis === 'y') {
+      const angle = getAngle(e.clientX, e.clientY)
+      let delta = angle - lastAngle.current
+      if (delta > Math.PI) delta -= 2 * Math.PI
+      if (delta < -Math.PI) delta += 2 * Math.PI
+      onRotate(-delta)
+      lastAngle.current = angle
+    } else {
+      const delta = (e.clientY - lastClientY.current) * 0.01
+      onRotate(delta)
+      lastClientY.current = e.clientY
+    }
   }
 
   const handleUp = (e) => {
@@ -144,15 +152,18 @@ function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotat
     onRotateEnd?.()
   }
 
+  // axis='y' → horizontal ring in XZ plane; axis='x' → vertical ring in YZ plane
+  const meshRotation = axis === 'y' ? [-Math.PI / 2, 0, 0] : [0, Math.PI / 2, 0]
+
   return (
     <group position={[0, ringY, 0]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}
+      <mesh rotation={meshRotation}
         onPointerDown={handleDown}
         onPointerMove={handleMove}
         onPointerUp={handleUp}
       >
         <torusGeometry args={[ringRadius, 0.04, 8, 64]} />
-        <meshBasicNodeMaterial color="#ff9500" depthTest={false} side={THREE.DoubleSide} />
+        <meshBasicNodeMaterial color={color} depthTest={false} side={THREE.DoubleSide} />
       </mesh>
     </group>
   )
@@ -161,7 +172,7 @@ function RotationRing({ groupRef, ringRadius, ringY, orbitRef, onRotate, onRotat
 function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onRotationChange, onDragCommit, isEmbed, isSelected, zMoveActive, rMoveActive, orbitRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
-  const rot = useRef(rotation?.y ?? 0)
+  const rot = useRef({ x: rotation?.x ?? 0, y: rotation?.y ?? 0 })
   const offset = useRef([0, 0])
 
   const [arrowBase, setArrowBase] = useState(0)
@@ -184,10 +195,12 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
   // Sync rotation from prop (on mount and when updated from drag-end state flush)
   useEffect(() => {
     if (!groupRef.current) return
+    const x = rotation?.x ?? 0
     const y = rotation?.y ?? 0
+    groupRef.current.rotation.x = x
     groupRef.current.rotation.y = y
-    rot.current = y
-  }, [rotation?.y])
+    rot.current = { x, y }
+  }, [rotation?.x, rotation?.y])
 
   useEffect(() => {
     if (groupRef.current && scale) {
@@ -337,20 +350,32 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
         }} />
       )}
       {rMoveActive && isSelected && !isEmbed && (
-        <RotationRing
-          groupRef={groupRef}
-          ringRadius={ringRadius}
-          ringY={ringY}
-          orbitRef={orbitRef}
-          onDragCommit={onDragCommit}
-          onRotate={(delta) => {
-            rot.current += delta
-            groupRef.current.rotation.y = rot.current
-          }}
-          onRotateEnd={() => {
-            if (onRotationChange) onRotationChange({ x: 0, y: rot.current })
-          }}
-        />
+        <>
+          <RotationRing
+            groupRef={groupRef} ringRadius={ringRadius} ringY={ringY}
+            orbitRef={orbitRef} onDragCommit={onDragCommit}
+            axis="y" color="#ff9500"
+            onRotate={(delta) => {
+              rot.current.y += delta
+              groupRef.current.rotation.y = rot.current.y
+            }}
+            onRotateEnd={() => {
+              if (onRotationChange) onRotationChange({ x: rot.current.x, y: rot.current.y })
+            }}
+          />
+          <RotationRing
+            groupRef={groupRef} ringRadius={ringRadius} ringY={ringY}
+            orbitRef={orbitRef} onDragCommit={onDragCommit}
+            axis="x" color="#51cf66"
+            onRotate={(delta) => {
+              rot.current.x += delta
+              groupRef.current.rotation.x = rot.current.x
+            }}
+            onRotateEnd={() => {
+              if (onRotationChange) onRotationChange({ x: rot.current.x, y: rot.current.y })
+            }}
+          />
+        </>
       )}
     </group>
   )
