@@ -106,6 +106,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   const pos = useRef(position)
   const offset = useRef([0, 0])
   const selectedMeshRef = useRef(null)
+  const origPositionsRef = useRef(null) // original mesh positions/rotations from file
 
   const [arrowBase, setArrowBase] = useState(0)
 
@@ -124,13 +125,33 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     selectedMeshRef.current = meshes[parseInt(selectedPart)] || null
   }, [selectedPart, clonedScene])
 
-  // Apply saved per-part transforms — runs on load AND on undo (partTransforms restored)
+  // Capture original mesh positions/rotations once when scene loads (before any edits)
   useEffect(() => {
-    if (!clonedScene || !partTransforms) return
+    if (!clonedScene) return
+    const orig = {}
     const meshes = []
     clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
     meshes.forEach((mesh, i) => {
-      const t = partTransforms[String(i)]
+      orig[i] = {
+        position: [mesh.position.x, mesh.position.y, mesh.position.z],
+        rotation: [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z],
+      }
+    })
+    origPositionsRef.current = orig
+  }, [clonedScene])
+
+  // Apply saved per-part transforms — resets to originals first so undo works correctly
+  useEffect(() => {
+    if (!clonedScene) return
+    const meshes = []
+    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
+    meshes.forEach((mesh, i) => {
+      const orig = origPositionsRef.current?.[i]
+      if (orig) {
+        mesh.position.fromArray(orig.position)
+        mesh.rotation.set(orig.rotation[0], orig.rotation[1], orig.rotation[2])
+      }
+      const t = partTransforms?.[String(i)]
       if (!t) return
       if (t.position) mesh.position.fromArray(t.position)
       if (t.rotation) mesh.rotation.set(
@@ -204,22 +225,23 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   useEffect(() => {
     const group = groupRef.current
     if (!group || !isSelected || !clonedScene) return
-    group.updateWorldMatrix(true, true)
-    const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert()
 
-    const sourceGeos = []
     const isPartSelected = selectedPart !== 'all'
+    const sourceGeos = []
+    let targetParent
 
     if (isPartSelected) {
       const meshes = []
       clonedScene.traverse(child => { if (child.isMesh && child.geometry) meshes.push(child) })
       const mesh = meshes[parseInt(selectedPart)]
-      if (mesh) {
-        const geo = mesh.geometry.clone()
-        geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(invGroup, mesh.matrixWorld))
-        sourceGeos.push(geo)
-      }
+      if (!mesh) return
+      // Parent the outline to the part mesh itself — it follows automatically when the mesh moves
+      targetParent = mesh
+      sourceGeos.push(mesh.geometry.clone()) // geometry is already in mesh local space
     } else {
+      targetParent = group
+      group.updateWorldMatrix(true, true)
+      const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert()
       clonedScene.traverse(child => {
         if (!child.isMesh || !child.geometry) return
         const geo = child.geometry.clone()
@@ -234,18 +256,18 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     if (!merged) return
 
     const expandedGeo = merged.clone()
-    const pos = expandedGeo.getAttribute('position')
-    const nor = expandedGeo.getAttribute('normal')
-    if (pos && nor) {
+    const posAttr = expandedGeo.getAttribute('position')
+    const norAttr = expandedGeo.getAttribute('normal')
+    if (posAttr && norAttr) {
       const thickness = 0.0175
-      for (let i = 0; i < pos.count; i++) {
-        pos.setXYZ(i,
-          pos.getX(i) + nor.getX(i) * thickness,
-          pos.getY(i) + nor.getY(i) * thickness,
-          pos.getZ(i) + nor.getZ(i) * thickness
+      for (let i = 0; i < posAttr.count; i++) {
+        posAttr.setXYZ(i,
+          posAttr.getX(i) + norAttr.getX(i) * thickness,
+          posAttr.getY(i) + norAttr.getY(i) * thickness,
+          posAttr.getZ(i) + norAttr.getZ(i) * thickness
         )
       }
-      pos.needsUpdate = true
+      posAttr.needsUpdate = true
     }
     const outlineMat = new THREE.MeshBasicNodeMaterial({
       color: new THREE.Color(isPartSelected ? '#ffaa44' : '#89c4ff'),
@@ -257,13 +279,13 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     outlineMesh.renderOrder = 1
     outlineMesh.castShadow = false
     outlineMesh.receiveShadow = false
-    group.add(outlineMesh)
+    targetParent.add(outlineMesh)
 
     return () => {
       outlineMat.dispose()
       merged.dispose()
       expandedGeo.dispose()
-      group.remove(outlineMesh)
+      targetParent.remove(outlineMesh)
     }
   }, [isSelected, selectedPart, clonedScene])
 
