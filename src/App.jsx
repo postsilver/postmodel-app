@@ -599,7 +599,7 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
       })
       if (!res.ok) throw new Error('Server error')
       const { id } = await res.json()
-      const url = `https://room-demo-nu.vercel.app/view/${id}`
+      const url = `https://postmodel.vercel.app/view/${id}`
       await navigator.clipboard.writeText(url)
       setShareMsg('Link copied!')
     } catch {
