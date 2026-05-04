@@ -101,10 +101,11 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, orbitRef }) {
+function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
+  const selectedMeshRef = useRef(null)
 
   const [arrowBase, setArrowBase] = useState(0)
 
@@ -114,6 +115,31 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
       setArrowBase(box.min.y - groupRef.current.position.y)
     }
   }, [clonedScene])
+
+  // Track the selected sub-mesh imperatively
+  useEffect(() => {
+    if (selectedPart === 'all' || !clonedScene) { selectedMeshRef.current = null; return }
+    const meshes = []
+    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
+    selectedMeshRef.current = meshes[parseInt(selectedPart)] || null
+  }, [selectedPart, clonedScene])
+
+  // Apply saved per-part transforms when the scene first loads
+  useEffect(() => {
+    if (!clonedScene || !partTransforms) return
+    const meshes = []
+    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
+    meshes.forEach((mesh, i) => {
+      const t = partTransforms[String(i)]
+      if (!t) return
+      if (t.position) mesh.position.fromArray(t.position)
+      if (t.rotation) mesh.rotation.set(
+        THREE.MathUtils.degToRad(t.rotation.x ?? 0),
+        THREE.MathUtils.degToRad(t.rotation.y ?? 0),
+        THREE.MathUtils.degToRad(t.rotation.z ?? 0),
+      )
+    })
+  }, [clonedScene]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (groupRef.current && scale) {
@@ -180,21 +206,33 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
     if (!group || !isSelected || !clonedScene) return
     group.updateWorldMatrix(true, true)
     const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert()
-    const geos = []
-    clonedScene.traverse(child => {
-      if (!child.isMesh || !child.geometry) return
-      const geo = child.geometry.clone()
-      geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(invGroup, child.matrixWorld))
-      geos.push(geo)
-    })
-    if (!geos.length) return
-    const merged = geos.length === 1 ? geos[0] : mergeGeometries(geos, false)
-    if (geos.length > 1) geos.forEach(g => g.dispose())
+
+    const sourceGeos = []
+    const isPartSelected = selectedPart !== 'all'
+
+    if (isPartSelected) {
+      const meshes = []
+      clonedScene.traverse(child => { if (child.isMesh && child.geometry) meshes.push(child) })
+      const mesh = meshes[parseInt(selectedPart)]
+      if (mesh) {
+        const geo = mesh.geometry.clone()
+        geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(invGroup, mesh.matrixWorld))
+        sourceGeos.push(geo)
+      }
+    } else {
+      clonedScene.traverse(child => {
+        if (!child.isMesh || !child.geometry) return
+        const geo = child.geometry.clone()
+        geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(invGroup, child.matrixWorld))
+        sourceGeos.push(geo)
+      })
+    }
+
+    if (!sourceGeos.length) return
+    const merged = sourceGeos.length === 1 ? sourceGeos[0] : mergeGeometries(sourceGeos, false)
+    if (sourceGeos.length > 1) sourceGeos.forEach(g => g.dispose())
     if (!merged) return
 
-    // Outline: BackSide hull expanded along normals. The furniture mesh writes
-    // depth naturally so no separate pre-pass is needed — colorWrite:false on
-    // MeshBasicNodeMaterial is not honoured by WebGPU and caused white artifacts.
     const expandedGeo = merged.clone()
     const pos = expandedGeo.getAttribute('position')
     const nor = expandedGeo.getAttribute('normal')
@@ -210,7 +248,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
       pos.needsUpdate = true
     }
     const outlineMat = new THREE.MeshBasicNodeMaterial({
-      color: new THREE.Color('#89c4ff'),
+      color: new THREE.Color(isPartSelected ? '#ffaa44' : '#89c4ff'),
       side: THREE.BackSide,
       depthTest: true,
       depthWrite: false,
@@ -227,7 +265,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
       expandedGeo.dispose()
       group.remove(outlineMesh)
     }
-  }, [isSelected, clonedScene])
+  }, [isSelected, selectedPart, clonedScene])
 
   const bind = useDrag(({ active, first, last, event }) => {
     if (first) {
@@ -266,10 +304,19 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
-          const newY = groupRef.current.position.y + delta
-          groupRef.current.position.y = newY
-          pos.current = [pos.current[0], newY, pos.current[2]]
-          if (onPositionChange) onPositionChange([...pos.current])
+          const mesh = selectedMeshRef.current
+          if (mesh) {
+            const newY = mesh.position.y + delta
+            mesh.position.y = newY
+            const existing = partTransforms?.[selectedPart] ?? {}
+            const newPos = [mesh.position.x, newY, mesh.position.z]
+            onUpdatePartTransform?.(selectedPart, { ...existing, position: newPos })
+          } else {
+            const newY = groupRef.current.position.y + delta
+            groupRef.current.position.y = newY
+            pos.current = [pos.current[0], newY, pos.current[2]]
+            if (onPositionChange) onPositionChange([...pos.current])
+          }
         }} />
       )}
       {rotPanelActive && isSelected && !isEmbed && (
@@ -287,35 +334,52 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, floorPlane,
             transform: 'translateX(14px)',
             userSelect: 'none',
           }}>
-            <div style={{ color: '#666', fontSize: '10px', letterSpacing: '0.08em', marginBottom: '6px', paddingRight: '8px' }}>ROTATION</div>
+            <div style={{ color: '#666', fontSize: '10px', letterSpacing: '0.08em', marginBottom: '6px', paddingRight: '8px' }}>
+              {selectedPart !== 'all' ? `ROTATION · PART ${parseInt(selectedPart) + 1}` : 'ROTATION'}
+            </div>
             {[
               { axis: 'x', color: '#e05252' },
               { axis: 'y', color: '#52b352' },
               { axis: 'z', color: '#5285e0' },
-            ].map(({ axis, color }) => (
-              <div key={axis} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', gap: '6px' }}>
-                <span style={{ color, width: '12px', fontWeight: 'bold', fontSize: '11px', flexShrink: 0 }}>{axis.toUpperCase()}</span>
-                <input
-                  type="number"
-                  step="1"
-                  value={Math.round((rotation?.[axis] ?? 0) * 10) / 10}
-                  onChange={e => onUpdateRotation(axis, parseFloat(e.target.value) || 0)}
-                  onPointerDown={e => e.stopPropagation()}
-                  style={{
-                    flex: 1,
-                    background: '#1a1a1a',
-                    border: '1px solid #3a3a3a',
-                    borderRadius: '3px',
-                    color: '#ddd',
-                    padding: '3px 6px',
-                    fontSize: '12px',
-                    outline: 'none',
-                    width: 0,
-                  }}
-                />
-                <span style={{ color: '#666', fontSize: '11px', paddingRight: '8px' }}>°</span>
-              </div>
-            ))}
+            ].map(({ axis, color }) => {
+              const partRot = partTransforms?.[selectedPart]?.rotation
+              const value = selectedPart !== 'all'
+                ? (partRot?.[axis] ?? 0)
+                : (rotation?.[axis] ?? 0)
+              return (
+                <div key={axis} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', gap: '6px' }}>
+                  <span style={{ color, width: '12px', fontWeight: 'bold', fontSize: '11px', flexShrink: 0 }}>{axis.toUpperCase()}</span>
+                  <input
+                    type="number"
+                    step="1"
+                    value={Math.round(value * 10) / 10}
+                    onChange={e => {
+                      const deg = parseFloat(e.target.value) || 0
+                      if (selectedPart !== 'all') {
+                        const mesh = selectedMeshRef.current
+                        if (mesh) {
+                          mesh.rotation[axis] = THREE.MathUtils.degToRad(deg)
+                          const existing = partTransforms?.[selectedPart] ?? {}
+                          onUpdatePartTransform?.(selectedPart, {
+                            ...existing,
+                            rotation: { ...(existing.rotation ?? {}), [axis]: deg },
+                          })
+                        }
+                      } else {
+                        onUpdateRotation(axis, deg)
+                      }
+                    }}
+                    onPointerDown={e => e.stopPropagation()}
+                    style={{
+                      flex: 1, background: '#1a1a1a', border: '1px solid #3a3a3a',
+                      borderRadius: '3px', color: '#ddd', padding: '3px 6px',
+                      fontSize: '12px', outline: 'none', width: 0,
+                    }}
+                  />
+                  <span style={{ color: '#666', fontSize: '11px', paddingRight: '8px' }}>°</span>
+                </div>
+              )
+            })}
           </div>
         </Html>
       )}
@@ -461,7 +525,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -495,6 +559,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           position: item.position,
           scale: item.scale ?? { x: 1, y: 1, z: 1 },
           rotation: item.rotation ?? { x: 0, y: 0, z: 0 },
+          partTransforms: item.partTransforms ?? {},
           floorPlane,
           onDragStart: () => setIsDragging(true),
           onDragEnd: () => setIsDragging(false),
@@ -508,6 +573,8 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           zMoveActive,
           rotPanelActive,
           onUpdateRotation: onUpdateRotation ? (axis, deg) => onUpdateRotation(item.instanceId, axis, deg) : undefined,
+          onUpdatePartTransform: onUpdatePartTransform ? (partIndex, transforms) => onUpdatePartTransform(item.instanceId, partIndex, transforms) : undefined,
+          selectedPart: selectedId === item.instanceId ? selectedPart : 'all',
           orbitRef,
         }
         return (
@@ -554,8 +621,7 @@ export function ViewportMode({ mode, placedFurniture }) {
   return null
 }
 
-function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh }) {
-  const [selectedPart, setSelectedPart] = useState('all')
+function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh, selectedPart, onPartSelect }) {
   const [showEmbed, setShowEmbed] = useState(false)
   const [baseUrl, setBaseUrl] = useState('')
   const [embedWidth, setEmbedWidth] = useState(800)
@@ -605,7 +671,6 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
   }
 
   const meshList = selectedId ? meshLists[selectedId] || [] : []
-  useEffect(() => { setSelectedPart('all') }, [selectedId])
 
   const btnStyle = { width: '100%', padding: '10px', background: '#333', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px', textAlign: 'left' }
 
@@ -672,7 +737,7 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
           <label style={{ fontSize: '12px', color: '#888' }}>Select Part</label>
           <select
             value={selectedPart}
-            onChange={(e) => setSelectedPart(e.target.value)}
+            onChange={(e) => onPartSelect(e.target.value)}
             style={{ width: '100%', padding: '8px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '13px' }}
           >
             <option value="all">All Parts</option>
@@ -741,6 +806,7 @@ function App() {
   const [isPointerLocked, setIsPointerLocked] = useState(false)
   const [zMoveActive, setZMoveActive] = useState(false)
   const [rotPanelActive, setRotPanelActive] = useState(false)
+  const [selectedPart, setSelectedPart] = useState('all')
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [renderMode, setRenderMode] = useState('rendered')
@@ -778,7 +844,8 @@ function App() {
   }, [isEmbed, selectedId])
 
   useEffect(() => {
-    if (!selectedId) setRotPanelActive(false)
+    if (!selectedId) { setRotPanelActive(false); setSelectedPart('all') }
+    else setSelectedPart('all')
   }, [selectedId])
 
   // Restore scene from URL hash when loaded as an embed
@@ -844,6 +911,14 @@ function App() {
   const updatePosition = (instanceId, newPosition) => {
     setPlacedFurniture(prev => prev.map(item =>
       item.instanceId === instanceId ? { ...item, position: newPosition, material: item.material } : item
+    ))
+  }
+
+  const updatePartTransform = (instanceId, partIndex, transforms) => {
+    setPlacedFurniture(prev => prev.map(item =>
+      item.instanceId === instanceId
+        ? { ...item, partTransforms: { ...(item.partTransforms ?? {}), [partIndex]: { ...(item.partTransforms?.[partIndex] ?? {}), ...transforms } } }
+        : item
     ))
   }
 
@@ -1033,6 +1108,8 @@ const updateScale = (instanceId, newScale) => {
           currentProjectName={currentProjectName}
           onGoToDashboard={() => setAppScreen('dashboard')}
           onUploadMesh={() => uploadInputRef.current?.click()}
+          selectedPart={selectedPart}
+          onPartSelect={setSelectedPart}
         />
       )}
 
@@ -1228,6 +1305,8 @@ const updateScale = (instanceId, newScale) => {
               pointLightIntensity={pointLightIntensity}
               rotPanelActive={rotPanelActive}
               onUpdateRotation={updateRotation}
+              onUpdatePartTransform={updatePartTransform}
+              selectedPart={selectedPart}
             />
           </Suspense>
         </Canvas>
