@@ -121,7 +121,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   useEffect(() => {
     if (selectedPart === 'all' || !clonedScene) { selectedMeshRef.current = null; return }
     const meshes = []
-    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
+    clonedScene.traverse(child => { if (child.isMesh && !child.userData.isOutline) meshes.push(child) })
     selectedMeshRef.current = meshes[parseInt(selectedPart)] || null
   }, [selectedPart, clonedScene])
 
@@ -130,7 +130,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     if (!clonedScene) return
     const orig = {}
     const meshes = []
-    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
+    clonedScene.traverse(child => { if (child.isMesh && !child.userData.isOutline) meshes.push(child) })
     meshes.forEach((mesh, i) => {
       orig[i] = {
         position: [mesh.position.x, mesh.position.y, mesh.position.z],
@@ -144,7 +144,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   useEffect(() => {
     if (!clonedScene) return
     const meshes = []
-    clonedScene.traverse(child => { if (child.isMesh) meshes.push(child) })
+    clonedScene.traverse(child => { if (child.isMesh && !child.userData.isOutline) meshes.push(child) })
     meshes.forEach((mesh, i) => {
       const orig = origPositionsRef.current?.[i]
       if (orig) {
@@ -182,7 +182,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     if (clonedScene && onMeshListUpdate) {
       const meshes = []
       clonedScene.traverse((child) => {
-        if (child.isMesh) {
+        if (child.isMesh && !child.userData.isOutline) {
           meshes.push({ name: child.name || `Mesh ${meshes.length + 1}`, uuid: child.uuid })
         }
       })
@@ -194,7 +194,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     if (clonedScene && materialSettings) {
       let meshIndex = 0
       clonedScene.traverse((child) => {
-        if (child.isMesh) {
+        if (child.isMesh && !child.userData.isOutline) {
           const meshMaterials = materialSettings.meshMaterials || {}
           const settings = meshMaterials[meshIndex] || materialSettings
           let texture = null
@@ -232,7 +232,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
 
     if (isPartSelected) {
       const meshes = []
-      clonedScene.traverse(child => { if (child.isMesh && child.geometry) meshes.push(child) })
+      clonedScene.traverse(child => { if (child.isMesh && child.geometry && !child.userData.isOutline) meshes.push(child) })
       const mesh = meshes[parseInt(selectedPart)]
       if (!mesh) return
       // Parent the outline to the part mesh itself — it follows automatically when the mesh moves
@@ -243,7 +243,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       group.updateWorldMatrix(true, true)
       const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert()
       clonedScene.traverse(child => {
-        if (!child.isMesh || !child.geometry) return
+        if (!child.isMesh || !child.geometry || child.userData.isOutline) return
         const geo = child.geometry.clone()
         geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(invGroup, child.matrixWorld))
         sourceGeos.push(geo)
@@ -276,6 +276,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       depthWrite: false,
     })
     const outlineMesh = new THREE.Mesh(expandedGeo, outlineMat)
+    outlineMesh.userData.isOutline = true
     outlineMesh.renderOrder = 1
     outlineMesh.castShadow = false
     outlineMesh.receiveShadow = false
