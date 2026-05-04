@@ -124,7 +124,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     selectedMeshRef.current = meshes[parseInt(selectedPart)] || null
   }, [selectedPart, clonedScene])
 
-  // Apply saved per-part transforms when the scene first loads
+  // Apply saved per-part transforms — runs on load AND on undo (partTransforms restored)
   useEffect(() => {
     if (!clonedScene || !partTransforms) return
     const meshes = []
@@ -139,7 +139,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
         THREE.MathUtils.degToRad(t.rotation.z ?? 0),
       )
     })
-  }, [clonedScene]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clonedScene, JSON.stringify(partTransforms)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (groupRef.current && scale) {
@@ -268,32 +268,62 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   }, [isSelected, selectedPart, clonedScene])
 
   const bind = useDrag(({ active, first, last, event }) => {
+    const partMesh = isSelected ? selectedMeshRef.current : null
     if (first) {
       onDragStart()
       onSelect()
       if (event.ray) {
         const intersect = new THREE.Vector3()
         event.ray.intersectPlane(floorPlane, intersect)
-        offset.current = [
-          groupRef.current.position.x - intersect.x,
-          groupRef.current.position.z - intersect.z,
-        ]
+        if (partMesh) {
+          const worldPos = new THREE.Vector3()
+          partMesh.getWorldPosition(worldPos)
+          offset.current = [worldPos.x - intersect.x, worldPos.z - intersect.z]
+        } else {
+          offset.current = [
+            groupRef.current.position.x - intersect.x,
+            groupRef.current.position.z - intersect.z,
+          ]
+        }
       }
     }
     if (last) {
       onDragCommit?.()
       onDragEnd()
-      if (onPositionChange) onPositionChange([...pos.current])
+      if (partMesh) {
+        const existing = partTransforms?.[selectedPart] ?? {}
+        onUpdatePartTransform?.(selectedPart, {
+          ...existing,
+          position: [partMesh.position.x, partMesh.position.y, partMesh.position.z],
+        })
+      } else {
+        if (onPositionChange) onPositionChange([...pos.current])
+      }
     }
     if (active && event.ray) {
       const intersect = new THREE.Vector3()
       event.ray.intersectPlane(floorPlane, intersect)
-      pos.current = [
-        intersect.x + offset.current[0],
-        position[1],
-        intersect.z + offset.current[1],
-      ]
-      groupRef.current.position.set(...pos.current)
+      if (partMesh) {
+        const parent = partMesh.parent
+        if (parent) {
+          parent.updateWorldMatrix(true, false)
+          const worldTarget = new THREE.Vector3(
+            intersect.x + offset.current[0],
+            0,
+            intersect.z + offset.current[1]
+          )
+          parent.worldToLocal(worldTarget)
+          partMesh.position.x = worldTarget.x
+          partMesh.position.z = worldTarget.z
+        }
+      } else {
+        pos.current = [
+          intersect.x + offset.current[0],
+          position[1],
+          intersect.z + offset.current[1],
+        ]
+        groupRef.current.position.set(...pos.current)
+      }
     }
   }, { pointerEvents: true })
 
@@ -670,8 +700,6 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
     }
   }
 
-  const meshList = selectedId ? meshLists[selectedId] || [] : []
-
   const btnStyle = { width: '100%', padding: '10px', background: '#333', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px', textAlign: 'left' }
 
   return (
@@ -697,57 +725,77 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
       <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>IMPORT</div>
       <button onClick={onUploadMesh} style={btnStyle}>↑ Upload Mesh</button>
 
-      {/* In Scene */}
+      {/* Scene outliner — Blender-style hierarchy */}
       {placedFurniture.length > 0 && (
         <>
-          <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>
-            IN SCENE ({placedFurniture.length})
+          <div style={{ fontSize: '11px', color: '#555', marginBottom: '4px', marginTop: '24px', letterSpacing: '0.06em' }}>
+            SCENE
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {placedFurniture.map((item, index) => (
-              <div
-                key={item.instanceId}
-                onClick={() => onSelectItem(item.instanceId)}
-                style={{
-                  padding: '10px 12px',
-                  background: selectedId === item.instanceId ? '#2a4a6a' : '#252525',
-                  borderRadius: '4px',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-                onMouseEnter={e => { if (selectedId !== item.instanceId) e.currentTarget.style.background = '#303030' }}
-                onMouseLeave={e => { e.currentTarget.style.background = selectedId === item.instanceId ? '#2a4a6a' : '#252525' }}
-              >
-                {item.name} #{index + 1}
-              </div>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {placedFurniture.map((item, index) => {
+              const itemMeshList = meshLists[item.instanceId] || []
+              const isItemSelected = selectedId === item.instanceId
+              return (
+                <div key={item.instanceId}>
+                  {/* Object row */}
+                  <div
+                    onClick={() => { onSelectItem(item.instanceId); onPartSelect('all') }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '5px',
+                      padding: '4px 6px',
+                      background: isItemSelected && selectedPart === 'all' ? '#2a4a6a' : 'transparent',
+                      borderRadius: '3px', cursor: 'pointer',
+                      fontSize: '12px', color: isItemSelected ? '#e8e8e8' : '#aaa',
+                      userSelect: 'none',
+                    }}
+                    onMouseEnter={e => { if (!(isItemSelected && selectedPart === 'all')) e.currentTarget.style.background = '#252525' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isItemSelected && selectedPart === 'all' ? '#2a4a6a' : 'transparent' }}
+                  >
+                    <svg viewBox="0 0 16 16" width="11" height="11" style={{ flexShrink: 0, opacity: 0.55 }}>
+                      <path d="M8 1 L14 4.5 L14 11.5 L8 15 L2 11.5 L2 4.5 Z" fill="currentColor" />
+                    </svg>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.name}#{index + 1}
+                    </span>
+                  </div>
+                  {/* Sub-mesh rows — always visible */}
+                  {itemMeshList.length > 1 && itemMeshList.map((mesh, meshIndex) => {
+                    const isPartSel = isItemSelected && selectedPart === String(meshIndex)
+                    return (
+                      <div
+                        key={mesh.uuid}
+                        onClick={() => { onSelectItem(item.instanceId); onPartSelect(String(meshIndex)) }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '5px',
+                          padding: '3px 6px 3px 20px',
+                          background: isPartSel ? '#1f3d5c' : 'transparent',
+                          borderRadius: '3px', cursor: 'pointer',
+                          fontSize: '11px', color: isPartSel ? '#7bb8e8' : '#555',
+                          userSelect: 'none',
+                        }}
+                        onMouseEnter={e => { if (!isPartSel) e.currentTarget.style.background = '#1e1e1e' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = isPartSel ? '#1f3d5c' : 'transparent' }}
+                      >
+                        <svg viewBox="0 0 16 16" width="9" height="9" style={{ flexShrink: 0, opacity: 0.6 }}>
+                          <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" />
+                          <circle cx="8" cy="8" r="2" fill="currentColor" />
+                        </svg>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {mesh.name || `Part ${meshIndex + 1}`}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
           </div>
           {selectedId && (
-            <button onClick={onDeleteSelected} style={{ ...btnStyle, marginTop: '12px', background: '#8B0000' }}>
+            <button onClick={onDeleteSelected} style={{ ...btnStyle, marginTop: '10px', background: '#8B0000' }}>
               🗑️ Delete Selected
             </button>
           )}
         </>
-      )}
-
-      {/* Part selector (kept for future material panel) */}
-      {selectedId && meshList.length > 1 && (
-        <div style={{ marginTop: '16px' }}>
-          <label style={{ fontSize: '12px', color: '#888' }}>Select Part</label>
-          <select
-            value={selectedPart}
-            onChange={(e) => onPartSelect(e.target.value)}
-            style={{ width: '100%', padding: '8px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '13px' }}
-          >
-            <option value="all">All Parts</option>
-            {meshList.map((mesh, index) => (
-              <option key={mesh.uuid} value={index.toString()}>
-                {mesh.name || `Part ${index + 1}`}
-              </option>
-            ))}
-          </select>
-        </div>
       )}
 
       {/* Embed / share */}
