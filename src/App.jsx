@@ -554,7 +554,7 @@ export function ViewportMode({ mode, placedFurniture }) {
   return null
 }
 
-function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists, envIntensity, setEnvIntensity, onSaveProject, currentProjectName, onGoToDashboard, navMode, onToggleNav, zMoveActive, onToggleZMove, onUploadMesh, scaleLocked, onToggleScaleLock, scaleInputs, onScaleChange }) {
+function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh }) {
   const [selectedPart, setSelectedPart] = useState('all')
   const [showEmbed, setShowEmbed] = useState(false)
   const [baseUrl, setBaseUrl] = useState('')
@@ -590,7 +590,7 @@ function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMateri
       const res = await fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scene: JSON.stringify({ furniture, lighting: { envIntensity } }) }),
+        body: JSON.stringify({ scene: JSON.stringify({ furniture }) }),
       })
       if (!res.ok) throw new Error('Server error')
       const { id } = await res.json()
@@ -604,29 +604,8 @@ function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMateri
     }
   }
 
-  const selectedItem = placedFurniture.find(item => item.instanceId === selectedId)
   const meshList = selectedId ? meshLists[selectedId] || [] : []
-
   useEffect(() => { setSelectedPart('all') }, [selectedId])
-
-  const getCurrentSettings = () => {
-    if (!selectedItem?.material) return DEFAULT_MATERIAL
-    if (selectedPart === 'all') return selectedItem.material
-    return (selectedItem.material.meshMaterials || {})[selectedPart] || selectedItem.material
-  }
-
-  const currentSettings = getCurrentSettings()
-
-  const handleMaterialUpdate = (newProps) => {
-    if (selectedPart === 'all') {
-      onUpdateMaterial(selectedId, { ...selectedItem.material, ...newProps, selectedPart: 'all' })
-    } else {
-      const meshMaterials = { ...(selectedItem.material.meshMaterials || {}) }
-      const { meshMaterials: _mm, selectedPart: _sp, ...flatGlobal } = selectedItem.material
-      meshMaterials[selectedPart] = { ...(meshMaterials[selectedPart] || flatGlobal), ...newProps }
-      onUpdateMaterial(selectedId, { ...selectedItem.material, meshMaterials, selectedPart })
-    }
-  }
 
   const btnStyle = { width: '100%', padding: '10px', background: '#333', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px', textAlign: 'left' }
 
@@ -653,18 +632,6 @@ function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMateri
       <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>IMPORT</div>
       <button onClick={onUploadMesh} style={btnStyle}>↑ Upload Mesh</button>
 
-      {/* Navigation */}
-      <div style={{ fontSize: '12px', color: '#888', marginTop: '16px', marginBottom: '8px' }}>NAVIGATION</div>
-      <button onClick={onToggleNav} style={btnStyle}>
-        {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
-      </button>
-
-      {/* Transform */}
-      <div style={{ fontSize: '12px', color: '#888', marginTop: '16px', marginBottom: '8px' }}>TRANSFORM</div>
-      <button onClick={onToggleZMove} style={{ ...btnStyle, background: zMoveActive ? '#1a5c2a' : '#333' }}>
-        ↕ Y Movement <span style={{ color: '#888', fontSize: '11px' }}>Z</span>
-      </button>
-
       {/* In Scene */}
       {placedFurniture.length > 0 && (
         <>
@@ -673,7 +640,20 @@ function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMateri
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {placedFurniture.map((item, index) => (
-              <div key={item.instanceId} style={{ padding: '10px 12px', background: selectedId === item.instanceId ? '#2a4a6a' : '#252525', borderRadius: '4px', fontSize: '13px' }}>
+              <div
+                key={item.instanceId}
+                onClick={() => onSelectItem(item.instanceId)}
+                style={{
+                  padding: '10px 12px',
+                  background: selectedId === item.instanceId ? '#2a4a6a' : '#252525',
+                  borderRadius: '4px',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                onMouseEnter={e => { if (selectedId !== item.instanceId) e.currentTarget.style.background = '#303030' }}
+                onMouseLeave={e => { e.currentTarget.style.background = selectedId === item.instanceId ? '#2a4a6a' : '#252525' }}
+              >
                 {item.name} #{index + 1}
               </div>
             ))}
@@ -686,31 +666,24 @@ function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMateri
         </>
       )}
 
-      {/* Scale */}
-      {selectedId && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '24px', marginBottom: '8px' }}>
-            <span style={{ fontSize: '12px', color: '#888' }}>SCALE</span>
-            <button onClick={onToggleScaleLock} title={scaleLocked ? 'Unlock axes' : 'Lock axes'} style={{ background: 'none', border: 'none', color: scaleLocked ? '#4a9eff' : '#888', cursor: 'pointer', fontSize: '14px', padding: '0 2px', lineHeight: 1 }}>
-              {scaleLocked ? '🔗' : '⛓'}
-            </button>
-          </div>
-          {['x', 'y', 'z'].map(axis => (
-            <div key={axis} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-              <span style={{ fontSize: '12px', color: '#888', width: '10px' }}>{axis.toUpperCase()}</span>
-              <input type="number" step="0.01" min="0.001" value={scaleInputs[axis]} onChange={(e) => onScaleChange(axis, e.target.value)}
-                style={{ flex: 1, background: '#333', border: 'none', borderRadius: '4px', color: 'white', padding: '6px 8px', fontSize: '12px' }} />
-            </div>
-          ))}
-        </>
+      {/* Part selector (kept for future material panel) */}
+      {selectedId && meshList.length > 1 && (
+        <div style={{ marginTop: '16px' }}>
+          <label style={{ fontSize: '12px', color: '#888' }}>Select Part</label>
+          <select
+            value={selectedPart}
+            onChange={(e) => setSelectedPart(e.target.value)}
+            style={{ width: '100%', padding: '8px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '13px' }}
+          >
+            <option value="all">All Parts</option>
+            {meshList.map((mesh, index) => (
+              <option key={mesh.uuid} value={index.toString()}>
+                {mesh.name || `Part ${index + 1}`}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
-
-      {/* Lighting */}
-      <div style={{ marginTop: '24px', borderTop: '1px solid #333', paddingTop: '16px' }}>
-        <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>LIGHTING</div>
-        <label style={{ fontSize: '12px', color: '#888' }}>Intensity: {envIntensity.toFixed(2)}</label>
-        <input type="range" min="0" max="3" step="0.01" value={envIntensity} onChange={(e) => setEnvIntensity(parseFloat(e.target.value))} style={{ width: '100%', marginTop: '4px' }} />
-      </div>
 
       {/* Embed / share */}
       <div style={{ marginTop: '24px', borderTop: '1px solid #333', paddingTop: '20px' }}>
@@ -727,279 +700,29 @@ function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMateri
         {showEmbed && (
           <div style={{ marginTop: '12px' }}>
             <label style={{ fontSize: '12px', color: '#888' }}>Base URL</label>
-            <input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '6px',
-                marginTop: '4px',
-                background: '#333',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '12px',
-                boxSizing: 'border-box',
-              }}
-            />
-
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)}
+              style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
             <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: '12px', color: '#888' }}>Width</label>
-                <input
-                  type="number"
-                  value={embedWidth}
-                  onChange={(e) => setEmbedWidth(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '6px',
-                    marginTop: '4px',
-                    background: '#333',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    boxSizing: 'border-box',
-                  }}
-                />
+                <input type="number" value={embedWidth} onChange={(e) => setEmbedWidth(Number(e.target.value))}
+                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: '12px', color: '#888' }}>Height</label>
-                <input
-                  type="number"
-                  value={embedHeight}
-                  onChange={(e) => setEmbedHeight(Number(e.target.value))}
-                  style={{
-                    width: '100%',
-                    padding: '6px',
-                    marginTop: '4px',
-                    background: '#333',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    boxSizing: 'border-box',
-                  }}
-                />
+                <input type="number" value={embedHeight} onChange={(e) => setEmbedHeight(Number(e.target.value))}
+                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
               </div>
             </div>
-
-            <textarea
-              readOnly
-              value={getIframeCode()}
-              rows={6}
-              style={{
-                width: '100%',
-                marginTop: '8px',
-                padding: '8px',
-                background: '#111',
-                color: '#7ec8e3',
-                border: '1px solid #333',
-                borderRadius: '4px',
-                fontSize: '11px',
-                fontFamily: 'monospace',
-                resize: 'vertical',
-                boxSizing: 'border-box',
-              }}
-            />
-
-            <button
-              onClick={handleCopy}
-              style={{
-                marginTop: '6px',
-                padding: '8px',
-                background: copied ? '#1a5c2a' : '#333',
-                border: 'none',
-                borderRadius: '4px',
-                color: 'white',
-                cursor: 'pointer',
-                width: '100%',
-                fontSize: '12px',
-              }}
-            >
+            <textarea readOnly value={getIframeCode()} rows={6}
+              style={{ width: '100%', marginTop: '8px', padding: '8px', background: '#111', color: '#7ec8e3', border: '1px solid #333', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
+            <button onClick={handleCopy}
+              style={{ marginTop: '6px', padding: '8px', background: copied ? '#1a5c2a' : '#333', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', width: '100%', fontSize: '12px' }}>
               {copied ? 'Copied!' : 'Copy Code'}
             </button>
           </div>
         )}
       </div>
-
-      {/* Material Editor */}
-      {selectedItem && (
-        <>
-          <div style={{ 
-            fontSize: '12px', 
-            color: '#888', 
-            marginBottom: '8px',
-            marginTop: '30px' 
-          }}>
-            🎨 MATERIAL
-          </div>
-          
-          {/* Part selector */}
-          {meshList.length > 1 && (
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ fontSize: '12px', color: '#888' }}>Select Part</label>
-              <select
-                value={selectedPart}
-                onChange={(e) => setSelectedPart(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  marginTop: '4px',
-                  background: '#333',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  fontSize: '13px',
-                }}
-              >
-                <option value="all">All Parts</option>
-                {meshList.map((mesh, index) => (
-                  <option key={mesh.uuid} value={index.toString()}>
-                    {mesh.name || `Part ${index + 1}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          
-          {/* Color picker */}
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ fontSize: '12px', color: '#888' }}>Color</label>
-            <input
-              type="color"
-              value={currentSettings.color || '#cccccc'}
-              onChange={(e) => handleMaterialUpdate({ color: e.target.value })}
-              style={{
-                width: '100%',
-                height: '30px',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                marginTop: '4px',
-              }}
-            />
-          </div>
-          
-          {/* Roughness slider */}
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ fontSize: '12px', color: '#888' }}>
-              Roughness: {(currentSettings.roughness || 0.5).toFixed(2)}
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={currentSettings.roughness || 0.5}
-              onChange={(e) => handleMaterialUpdate({ roughness: parseFloat(e.target.value) })}
-              style={{
-                width: '100%',
-                marginTop: '4px',
-              }}
-            />
-          </div>
-          
-          {/* Metalness slider */}
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ fontSize: '12px', color: '#888' }}>
-              Metalness: {(currentSettings.metalness || 0).toFixed(2)}
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={currentSettings.metalness || 0}
-              onChange={(e) => handleMaterialUpdate({ metalness: parseFloat(e.target.value) })}
-              style={{
-                width: '100%',
-                marginTop: '4px',
-              }}
-            />
-          </div>
-          
-          {/* Texture upload */}
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ fontSize: '12px', color: '#888' }}>Texture</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={async (e) => {
-                const file = e.target.files[0]
-                if (!file) return
-                // Optimistically show a local preview while uploading
-                const localUrl = URL.createObjectURL(file)
-                handleMaterialUpdate({ textureUrl: localUrl })
-                const uploadOpts = {
-                  method: 'POST',
-                  headers: {
-                    'content-type': file.type || 'application/octet-stream',
-                    'x-filename': file.name,
-                  },
-                  body: file,
-                }
-                try {
-                  let res = await fetch('/api/upload-texture', uploadOpts)
-                  if (!res.ok) {
-                    // Retry once after 1 second (handles cold-start 500s)
-                    await new Promise(r => setTimeout(r, 1000))
-                    res = await fetch('/api/upload-texture', uploadOpts)
-                  }
-                  if (res.ok) {
-                    const { url } = await res.json()
-                    handleMaterialUpdate({ textureUrl: url })
-                  }
-                } catch {
-                  // local blob url stays as fallback; won't survive share links
-                }
-              }}
-              style={{
-                width: '100%',
-                marginTop: '4px',
-                fontSize: '12px',
-              }}
-            />
-            
-            {currentSettings.textureUrl && (
-              <>
-                <button
-                  onClick={() => handleMaterialUpdate({ textureUrl: null })}
-                  style={{
-                    marginTop: '8px',
-                    padding: '6px 10px',
-                    background: '#444',
-                    border: 'none',
-                    borderRadius: '4px',
-                    color: 'white',
-                    cursor: 'pointer',
-                    fontSize: '11px',
-                    width: '100%',
-                  }}
-                >
-                  Remove Texture
-                </button>
-                
-                <label style={{ fontSize: '12px', color: '#888', marginTop: '12px', display: 'block' }}>
-                  Texture Scale: {(currentSettings.textureScale || 1).toFixed(1)}
-                </label>
-                <input
-                  type="range"
-                  min="0.1"
-                  max="10"
-                  step="0.1"
-                  value={currentSettings.textureScale || 1}
-                  onChange={(e) => handleMaterialUpdate({ textureScale: parseFloat(e.target.value) })}
-                  style={{
-                    width: '100%',
-                    marginTop: '4px',
-                  }}
-                />
-              </>
-            )}
-          </div>
-        </>
-      )}
     </div>
   )
 }
@@ -1302,25 +1025,39 @@ const updateScale = (instanceId, newScale) => {
       {!isEmbed && (
         <Sidebar
           onDeleteSelected={deleteSelected}
+          onSelectItem={setSelectedId}
           selectedId={selectedId}
           placedFurniture={placedFurniture}
-          onUpdateMaterial={updateMaterial}
           meshLists={meshLists}
-          envIntensity={envIntensity}
-          setEnvIntensity={setEnvIntensity}
           onSaveProject={handleSaveProject}
           currentProjectName={currentProjectName}
           onGoToDashboard={() => setAppScreen('dashboard')}
-          navMode={navMode}
-          onToggleNav={() => { setNavMode(navMode === 'orbit' ? 'fps' : 'orbit'); setIsPointerLocked(false) }}
-          zMoveActive={zMoveActive}
-          onToggleZMove={() => setZMoveActive(prev => !prev)}
           onUploadMesh={() => uploadInputRef.current?.click()}
-          scaleLocked={scaleLocked}
-          onToggleScaleLock={() => setScaleLocked(prev => !prev)}
-          scaleInputs={scaleInputs}
-          onScaleChange={handleScaleChange}
         />
+      )}
+
+      {/* Floating nav toggle — bottom-right of viewport */}
+      {!isEmbed && (
+        <button
+          onClick={() => { setNavMode(navMode === 'orbit' ? 'fps' : 'orbit'); setIsPointerLocked(false) }}
+          style={{
+            position: 'absolute',
+            bottom: '20px',
+            right: '20px',
+            zIndex: 200,
+            padding: '8px 14px',
+            background: 'rgba(30,30,30,0.85)',
+            border: '1px solid #444',
+            borderRadius: '6px',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '13px',
+            fontFamily: 'Arial, sans-serif',
+            userSelect: 'none',
+          }}
+        >
+          {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
+        </button>
       )}
 
       {!isEmbed && navMode === 'fps' && !isPointerLocked && (
