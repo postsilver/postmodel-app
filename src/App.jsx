@@ -153,7 +153,11 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       }
       const t = partTransforms?.[String(i)]
       if (!t) return
-      if (t.position) mesh.position.fromArray(t.position)
+      if (t.position) {
+        mesh.position.x = (orig?.position[0] ?? 0) + t.position[0]
+        mesh.position.y = (orig?.position[1] ?? 0) + t.position[1]
+        mesh.position.z = (orig?.position[2] ?? 0) + t.position[2]
+      }
       if (t.rotation) mesh.rotation.set(
         THREE.MathUtils.degToRad(t.rotation.x ?? 0),
         THREE.MathUtils.degToRad(t.rotation.y ?? 0),
@@ -314,10 +318,15 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       onDragCommit?.()
       onDragEnd()
       if (partMesh) {
+        const orig = origPositionsRef.current?.[parseInt(selectedPart)]
         const existing = partTransforms?.[selectedPart] ?? {}
         onUpdatePartTransform?.(selectedPart, {
           ...existing,
-          position: [partMesh.position.x, partMesh.position.y, partMesh.position.z],
+          position: [
+            partMesh.position.x - (orig?.position[0] ?? 0),
+            partMesh.position.y - (orig?.position[1] ?? 0),
+            partMesh.position.z - (orig?.position[2] ?? 0),
+          ],
         })
       } else {
         if (onPositionChange) onPositionChange([...pos.current])
@@ -361,9 +370,13 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
           if (mesh) {
             const newY = mesh.position.y + delta
             mesh.position.y = newY
+            const orig = origPositionsRef.current?.[parseInt(selectedPart)]
             const existing = partTransforms?.[selectedPart] ?? {}
-            const newPos = [mesh.position.x, newY, mesh.position.z]
-            onUpdatePartTransform?.(selectedPart, { ...existing, position: newPos })
+            onUpdatePartTransform?.(selectedPart, { ...existing, position: [
+              mesh.position.x - (orig?.position[0] ?? 0),
+              newY - (orig?.position[1] ?? 0),
+              mesh.position.z - (orig?.position[2] ?? 0),
+            ] })
           } else {
             const newY = groupRef.current.position.y + delta
             groupRef.current.position.y = newY
@@ -586,7 +599,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
     <>
       <StableEnvironment intensity={envIntensity ?? 0.5} />
 
-      <ambientLight intensity={0.3} color="#ffffff" />
+      <ambientLight intensity={pointLightIntensity ?? 0.3} color="#ffffff" />
 
       <directionalLight position={[5, 8, 5]} intensity={1.8} castShadow
         shadow-bias={-0.002}
@@ -863,6 +876,256 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
   )
 }
 
+const INP = {
+  background: '#111', border: '1px solid #2e2e2e', borderRadius: '3px',
+  color: '#ddd', padding: '3px 5px', fontSize: '11px',
+  boxSizing: 'border-box', outline: 'none', width: '100%',
+  fontFamily: 'Arial, sans-serif',
+}
+
+function XYZRow({ label, values, onChange, step = 0.01 }) {
+  return (
+    <div style={{ marginBottom: '12px' }}>
+      <div style={{ fontSize: '10px', color: '#555', marginBottom: '4px', letterSpacing: '0.07em' }}>{label}</div>
+      <div style={{ display: 'flex', gap: '4px' }}>
+        {['X', 'Y', 'Z'].map((axis, i) => (
+          <div key={axis} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px' }}>
+            <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>{axis}</span>
+            <input type="number" step={step}
+              value={Math.round((values[i] ?? 0) * 1000) / 1000}
+              onChange={e => onChange(i, parseFloat(e.target.value) || 0)}
+              onPointerDown={e => e.stopPropagation()}
+              style={INP}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId }) {
+  const [tab, setTab] = useState('material')
+  const [isUploadingTex, setIsUploadingTex] = useState(false)
+  const texInputRef = useRef()
+
+  const item = selectedId ? placedFurniture.find(i => i.instanceId === selectedId) : null
+  const isPartMode = !!item && selectedPart !== 'all'
+  const partIdx = isPartMode ? parseInt(selectedPart) : 0
+
+  const mat = item?.material ?? DEFAULT_MATERIAL
+  const meshMat = isPartMode
+    ? { ...DEFAULT_MATERIAL, ...mat, ...(mat.meshMaterials?.[partIdx] ?? {}) }
+    : mat
+
+  const partTransformData = isPartMode ? (item?.partTransforms?.[selectedPart] ?? {}) : null
+  const objRot = item?.rotation ?? { x: 0, y: 0, z: 0 }
+  const objPos = item?.position ?? [0, 0, 0]
+  const objScale = item?.scale ?? { x: 1, y: 1, z: 1 }
+  const partRot = partTransformData?.rotation ?? { x: 0, y: 0, z: 0 }
+  const partPos = partTransformData?.position ?? [0, 0, 0]
+
+  const handleMatChange = (changes) => {
+    if (!item) return
+    if (isPartMode) {
+      const newMM = { ...(mat.meshMaterials ?? {}), [partIdx]: { ...(mat.meshMaterials?.[partIdx] ?? {}), ...changes } }
+      onUpdateMaterial(selectedId, { ...mat, meshMaterials: newMM })
+    } else {
+      onUpdateMaterial(selectedId, { ...mat, ...changes })
+    }
+  }
+
+  const handleTexUpload = async (file) => {
+    if (!file || !item) return
+    setIsUploadingTex(true)
+    try {
+      const blob = await upload(file.name, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+        clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }),
+      })
+      handleMatChange({ textureUrl: blob.url })
+    } catch (err) {
+      console.error('Texture upload failed:', err)
+    } finally {
+      setIsUploadingTex(false)
+    }
+  }
+
+  const tabBtn = (id, label) => (
+    <button onClick={() => setTab(id)} style={{
+      flex: 1, padding: '9px 2px', background: 'transparent', border: 'none',
+      borderBottom: tab === id ? '2px solid #4a9eff' : '2px solid transparent',
+      color: tab === id ? '#c8e0f4' : '#555',
+      cursor: 'pointer', fontSize: '10px', fontFamily: 'Arial, sans-serif', letterSpacing: '0.07em',
+    }}>{label}</button>
+  )
+
+  const lbl = (text) => (
+    <div style={{ fontSize: '10px', color: '#555', marginBottom: '4px', letterSpacing: '0.07em' }}>{text}</div>
+  )
+
+  const sliderRow = (text, value, min, max, onChange) => (
+    <div style={{ marginBottom: '12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+        <span style={{ fontSize: '10px', color: '#555', letterSpacing: '0.07em' }}>{text}</span>
+        <span style={{ fontSize: '10px', color: '#777' }}>{value.toFixed(2)}</span>
+      </div>
+      <input type="range" min={min} max={max} step="0.01" value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        style={{ width: '100%', accentColor: '#4a9eff', height: '3px' }}
+      />
+    </div>
+  )
+
+  const divider = <div style={{ borderTop: '1px solid #222', margin: '12px 0' }} />
+
+  const noSel = (msg) => (
+    <div style={{ color: '#3a3a3a', fontSize: '12px', marginTop: '32px', textAlign: 'center' }}>{msg}</div>
+  )
+
+  const partChip = isPartMode && (
+    <div style={{ fontSize: '11px', color: '#999', marginBottom: '10px', background: '#222', padding: '4px 8px', borderRadius: '3px' }}>
+      {meshLists[selectedId]?.[partIdx]?.name || `Part ${partIdx + 1}`}
+    </div>
+  )
+
+  return (
+    <div style={{
+      position: 'absolute', right: 0, top: 0, width: '260px', height: '100vh',
+      background: '#1a1a1a', boxSizing: 'border-box', color: 'white',
+      fontFamily: 'Arial, sans-serif', overflowY: 'auto', zIndex: 100,
+      borderLeft: '1px solid #222',
+    }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid #222', background: '#161616' }}>
+        {tabBtn('material', 'MATERIAL')}
+        {tabBtn('transform', 'TRANSFORM')}
+        {tabBtn('environment', 'ENV')}
+      </div>
+      <div style={{ padding: '14px' }}>
+
+        {/* MATERIAL */}
+        {tab === 'material' && <>
+          {!item ? noSel('Select an object') : <>
+            {partChip}
+            {lbl('COLOR')}
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '12px' }}>
+              <input type="color" value={meshMat.color || '#cccccc'}
+                onChange={e => handleMatChange({ color: e.target.value })}
+                style={{ width: '32px', height: '26px', padding: '1px 2px', background: 'none', border: '1px solid #333', borderRadius: '3px', cursor: 'pointer', flexShrink: 0 }}
+              />
+              <input type="text" value={meshMat.color || '#cccccc'}
+                onChange={e => handleMatChange({ color: e.target.value })}
+                style={{ ...INP, flex: 1 }}
+              />
+            </div>
+            {sliderRow('ROUGHNESS', meshMat.roughness ?? 0.5, 0, 1, v => handleMatChange({ roughness: v }))}
+            {sliderRow('METALNESS', meshMat.metalness ?? 0, 0, 1, v => handleMatChange({ metalness: v }))}
+            {divider}
+            {lbl('TEXTURE')}
+            <input type="text" placeholder="Paste image URL…"
+              value={meshMat.textureUrl || ''}
+              onChange={e => handleMatChange({ textureUrl: e.target.value || null })}
+              style={{ ...INP, marginBottom: '6px' }}
+            />
+            <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
+            />
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+              <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
+                style={{ flex: 1, padding: '5px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#aaa', cursor: 'pointer', fontSize: '11px' }}>
+                {isUploadingTex ? 'Uploading…' : '↑ Upload image'}
+              </button>
+              {meshMat.textureUrl && (
+                <button onClick={() => handleMatChange({ textureUrl: null })}
+                  style={{ padding: '5px 10px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#666', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+              )}
+            </div>
+            {meshMat.textureUrl && <>
+              {lbl('TEXTURE SCALE')}
+              <input type="number" step="0.1" min="0.01"
+                value={meshMat.textureScale ?? 1}
+                onChange={e => handleMatChange({ textureScale: parseFloat(e.target.value) || 1 })}
+                style={{ ...INP, marginBottom: '12px' }}
+              />
+            </>}
+          </>}
+        </>}
+
+        {/* TRANSFORM */}
+        {tab === 'transform' && <>
+          {!item ? noSel('Select an object') : <>
+            {partChip}
+            <XYZRow
+              label={isPartMode ? 'POSITION (OFFSET)' : 'POSITION'}
+              values={isPartMode ? partPos : objPos}
+              step={0.01}
+              onChange={(i, v) => {
+                if (isPartMode) {
+                  const p = [...(Array.isArray(partPos) ? partPos : [0, 0, 0])]
+                  p[i] = v
+                  onUpdatePartTransform(selectedId, selectedPart, { position: p })
+                } else {
+                  const p = [...(Array.isArray(objPos) ? objPos : [0, 0, 0])]
+                  p[i] = v
+                  onUpdatePosition(selectedId, p)
+                }
+              }}
+            />
+            <XYZRow
+              label="ROTATION"
+              values={isPartMode
+                ? [partRot.x ?? 0, partRot.y ?? 0, partRot.z ?? 0]
+                : [objRot.x ?? 0, objRot.y ?? 0, objRot.z ?? 0]}
+              step={1}
+              onChange={(i, v) => {
+                const axes = ['x', 'y', 'z']
+                if (isPartMode) {
+                  onUpdatePartTransform(selectedId, selectedPart, { rotation: { ...partRot, [axes[i]]: v } })
+                } else {
+                  onUpdateRotation(selectedId, axes[i], v)
+                }
+              }}
+            />
+            {divider}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <div style={{ fontSize: '10px', color: '#555', letterSpacing: '0.07em' }}>SCALE</div>
+              <button onClick={onToggleScaleLock} title={scaleLocked ? 'Uniform (click to free)' : 'Free (click to lock)'}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: scaleLocked ? '#4a9eff' : '#444', fontSize: '13px', padding: 0, lineHeight: 1 }}>
+                {scaleLocked ? '🔗' : '⛓️'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
+              {['x', 'y', 'z'].map((axis, i) => (
+                <div key={axis} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                  <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>{axis.toUpperCase()}</span>
+                  <input type="number" step="0.01" min="0.001"
+                    value={Math.round((objScale[axis] ?? 1) * 1000) / 1000}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value)
+                      if (!isFinite(v) || v <= 0) return
+                      onUpdateScale(selectedId, scaleLocked ? { x: v, y: v, z: v } : { ...objScale, [axis]: v })
+                    }}
+                    onPointerDown={e => e.stopPropagation()}
+                    style={INP}
+                  />
+                </div>
+              ))}
+            </div>
+          </>}
+        </>}
+
+        {/* ENVIRONMENT */}
+        {tab === 'environment' && <>
+          {sliderRow('ENVIRONMENT INTENSITY', envIntensity, 0, 2, onEnvIntensity)}
+          {sliderRow('AMBIENT LIGHT', ambientIntensity, 0, 3, onAmbientIntensity)}
+        </>}
+
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
   const { isLoaded, isSignedIn, userId } = useAuth()
@@ -916,7 +1179,7 @@ function App() {
 
   useEffect(() => {
     if (!selectedId) { setRotPanelActive(false); setSelectedPart('all') }
-    else setSelectedPart('all')
+    // Don't auto-reset selectedPart on object switch — sidebar click handlers set it explicitly
   }, [selectedId])
 
   // Restore scene from URL hash when loaded as an embed
@@ -1184,6 +1447,27 @@ const updateScale = (instanceId, newScale) => {
         />
       )}
 
+      {!isEmbed && (
+        <RightPanel
+          selectedId={selectedId}
+          selectedPart={selectedPart}
+          placedFurniture={placedFurniture}
+          meshLists={meshLists}
+          onUpdateMaterial={updateMaterial}
+          onUpdateRotation={updateRotation}
+          onUpdatePartTransform={updatePartTransform}
+          onUpdatePosition={updatePosition}
+          onUpdateScale={updateScale}
+          scaleLocked={scaleLocked}
+          onToggleScaleLock={() => setScaleLocked(prev => !prev)}
+          envIntensity={envIntensity}
+          onEnvIntensity={setEnvIntensity}
+          ambientIntensity={pointLightIntensity}
+          onAmbientIntensity={setPointLightIntensity}
+          userId={userId}
+        />
+      )}
+
       {/* Floating nav toggle — bottom-right of viewport */}
       {!isEmbed && (
         <button
@@ -1191,7 +1475,7 @@ const updateScale = (instanceId, newScale) => {
           style={{
             position: 'absolute',
             bottom: '20px',
-            right: '20px',
+            right: '280px',
             zIndex: 200,
             padding: '8px 14px',
             background: 'rgba(30,30,30,0.85)',
@@ -1234,7 +1518,7 @@ const updateScale = (instanceId, newScale) => {
           position: 'absolute',
           top: 0,
           left: isEmbed ? 0 : 240,
-          right: 0,
+          right: isEmbed ? 0 : 260,
           bottom: 0,
         }}
         onDragOver={(e) => { e.preventDefault(); if (!isEmbed) setIsDragOver(true) }}
