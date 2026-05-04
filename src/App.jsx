@@ -554,14 +554,15 @@ export function ViewportMode({ mode, placedFurniture }) {
   return null
 }
 
-function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists, envIntensity, setEnvIntensity, pointLightIntensity, setPointLightIntensity }) {
-  const [isExpanded, setIsExpanded] = useState(false)
+function Sidebar({ onDeleteSelected, selectedId, placedFurniture, onUpdateMaterial, meshLists, envIntensity, setEnvIntensity, onSaveProject, currentProjectName, onGoToDashboard, navMode, onToggleNav, zMoveActive, onToggleZMove, onUploadMesh, scaleLocked, onToggleScaleLock, scaleInputs, onScaleChange }) {
   const [selectedPart, setSelectedPart] = useState('all')
   const [showEmbed, setShowEmbed] = useState(false)
   const [baseUrl, setBaseUrl] = useState('')
   const [embedWidth, setEmbedWidth] = useState(800)
   const [embedHeight, setEmbedHeight] = useState(600)
   const [copied, setCopied] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const [shareMsg, setShareMsg] = useState(null)
 
   useEffect(() => {
     setBaseUrl(window.location.origin + window.location.pathname)
@@ -581,26 +582,19 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
     })
   }
 
-  const [sharing, setSharing] = useState(false)
-  const [shareMsg, setShareMsg] = useState(null)
-
   const handleShareLink = async () => {
     setSharing(true)
     setShareMsg(null)
     try {
-      const furniture = placedFurniture.map(item => {
-        const mat = nullBlobTextureUrls(item.material)
-        return { ...item, material: mat }
-      })
+      const furniture = placedFurniture.map(item => ({ ...item, material: nullBlobTextureUrls(item.material) }))
       const res = await fetch('/api/share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scene: JSON.stringify({ furniture, lighting: { envIntensity, pointLightIntensity } }) }),
+        body: JSON.stringify({ scene: JSON.stringify({ furniture, lighting: { envIntensity } }) }),
       })
       if (!res.ok) throw new Error('Server error')
       const { id } = await res.json()
-      const url = `https://postmodel.vercel.app/view/${id}`
-      await navigator.clipboard.writeText(url)
+      await navigator.clipboard.writeText(`https://postmodel.vercel.app/view/${id}`)
       setShareMsg('Link copied!')
     } catch {
       setShareMsg('Failed — try again')
@@ -609,216 +603,123 @@ function Sidebar({ furnitureCatalog, onAddFurniture, onDeleteSelected, selectedI
       setTimeout(() => setShareMsg(null), 3000)
     }
   }
-  
+
   const selectedItem = placedFurniture.find(item => item.instanceId === selectedId)
   const meshList = selectedId ? meshLists[selectedId] || [] : []
-  
-  // Reset selected part when switching objects
-  useEffect(() => {
-    setSelectedPart('all')
-  }, [selectedId])
-  
-  // Get current material settings for the selected part
+
+  useEffect(() => { setSelectedPart('all') }, [selectedId])
+
   const getCurrentSettings = () => {
     if (!selectedItem?.material) return DEFAULT_MATERIAL
-    
-    if (selectedPart === 'all') {
-      return selectedItem.material
-    } else {
-      const meshMaterials = selectedItem.material.meshMaterials || {}
-      return meshMaterials[selectedPart] || selectedItem.material
-    }
+    if (selectedPart === 'all') return selectedItem.material
+    return (selectedItem.material.meshMaterials || {})[selectedPart] || selectedItem.material
   }
-  
+
   const currentSettings = getCurrentSettings()
-  
-  // Update material for specific part or all
+
   const handleMaterialUpdate = (newProps) => {
     if (selectedPart === 'all') {
-      onUpdateMaterial(selectedId, {
-        ...selectedItem.material,
-        ...newProps,
-        selectedPart: 'all'
-      })
+      onUpdateMaterial(selectedId, { ...selectedItem.material, ...newProps, selectedPart: 'all' })
     } else {
       const meshMaterials = { ...(selectedItem.material.meshMaterials || {}) }
-      // Fallback to global material but strip structural keys so per-mesh entries stay flat
       const { meshMaterials: _mm, selectedPart: _sp, ...flatGlobal } = selectedItem.material
-      meshMaterials[selectedPart] = {
-        ...(meshMaterials[selectedPart] || flatGlobal),
-        ...newProps
-      }
-      onUpdateMaterial(selectedId, {
-        ...selectedItem.material,
-        meshMaterials,
-        selectedPart
-      })
+      meshMaterials[selectedPart] = { ...(meshMaterials[selectedPart] || flatGlobal), ...newProps }
+      onUpdateMaterial(selectedId, { ...selectedItem.material, meshMaterials, selectedPart })
     }
   }
-  
+
+  const btnStyle = { width: '100%', padding: '10px', background: '#333', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px', textAlign: 'left' }
+
   return (
     <div style={{
-      position: 'absolute',
-      left: 0,
-      top: 0,
-      width: '240px',
-      height: '100vh',
-      background: '#1a1a1a',
-      padding: '20px',
-      boxSizing: 'border-box',
-      color: 'white',
-      fontFamily: 'Arial, sans-serif',
-      overflowY: 'auto',
-      zIndex: 100,
+      position: 'absolute', left: 0, top: 0, width: '240px', height: '100vh',
+      background: '#1a1a1a', padding: '20px', boxSizing: 'border-box',
+      color: 'white', fontFamily: 'Arial, sans-serif', overflowY: 'auto', zIndex: 100,
     }}>
-      <div 
-        onClick={() => setIsExpanded(!isExpanded)}
-        style={{
-          padding: '12px',
-          background: '#333',
-          borderRadius: '6px',
-          cursor: 'pointer',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '4px',
-        }}
-      >
-        <span style={{ fontWeight: 'bold' }}>📦 Furniture</span>
-        <span>{isExpanded ? '▼' : '▶'}</span>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <button onClick={onGoToDashboard} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '13px', padding: '4px 0' }}>
+          ← Projects
+        </button>
+        <UserButton />
       </div>
-      
-      {isExpanded && (
-        <div style={{
-          background: '#252525',
-          borderRadius: '6px',
-          padding: '4px',
-          marginBottom: '20px',
-        }}>
-          {furnitureCatalog.length === 0 ? (
-            <div style={{ padding: '12px', color: '#666', fontSize: '13px' }}>
-              No furniture found.
-            </div>
-          ) : (
-            furnitureCatalog.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => onAddFurniture(item)}
-                style={{
-                  padding: '10px 12px',
-                  cursor: 'pointer',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                }}
-                onMouseOver={(e) => e.currentTarget.style.background = '#333'}
-                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-              >
-                {item.name}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-      
+
+      {/* Save Project */}
+      <button onClick={onSaveProject} style={{ ...btnStyle, background: '#1a5c2a', marginBottom: '20px' }}>
+        {currentProjectName ? `💾 Save "${currentProjectName}"` : '💾 Save Project'}
+      </button>
+
+      {/* Import */}
+      <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>IMPORT</div>
+      <button onClick={onUploadMesh} style={btnStyle}>↑ Upload Mesh</button>
+
+      {/* Navigation */}
+      <div style={{ fontSize: '12px', color: '#888', marginTop: '16px', marginBottom: '8px' }}>NAVIGATION</div>
+      <button onClick={onToggleNav} style={btnStyle}>
+        {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
+      </button>
+
+      {/* Transform */}
+      <div style={{ fontSize: '12px', color: '#888', marginTop: '16px', marginBottom: '8px' }}>TRANSFORM</div>
+      <button onClick={onToggleZMove} style={{ ...btnStyle, background: zMoveActive ? '#1a5c2a' : '#333' }}>
+        ↕ Y Movement <span style={{ color: '#888', fontSize: '11px' }}>Z</span>
+      </button>
+
+      {/* In Scene */}
       {placedFurniture.length > 0 && (
         <>
-          <div style={{ 
-            fontSize: '12px', 
-            color: '#888', 
-            marginBottom: '8px',
-            marginTop: '20px' 
-          }}>
+          <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>
             IN SCENE ({placedFurniture.length})
           </div>
-          
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
             {placedFurniture.map((item, index) => (
-              <div
-                key={item.instanceId}
-                style={{
-                  padding: '10px 12px',
-                  background: selectedId === item.instanceId ? '#2a4a6a' : '#252525',
-                  borderRadius: '4px',
-                  fontSize: '13px',
-                }}
-              >
+              <div key={item.instanceId} style={{ padding: '10px 12px', background: selectedId === item.instanceId ? '#2a4a6a' : '#252525', borderRadius: '4px', fontSize: '13px' }}>
                 {item.name} #{index + 1}
               </div>
             ))}
           </div>
-          
           {selectedId && (
-            <button
-              onClick={onDeleteSelected}
-              style={{
-                marginTop: '16px',
-                padding: '10px',
-                background: '#8B0000',
-                border: 'none',
-                borderRadius: '6px',
-                color: 'white',
-                cursor: 'pointer',
-                width: '100%',
-                fontSize: '13px',
-              }}
-            >
+            <button onClick={onDeleteSelected} style={{ ...btnStyle, marginTop: '12px', background: '#8B0000' }}>
               🗑️ Delete Selected
             </button>
           )}
         </>
       )}
-      
+
+      {/* Scale */}
+      {selectedId && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '24px', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', color: '#888' }}>SCALE</span>
+            <button onClick={onToggleScaleLock} title={scaleLocked ? 'Unlock axes' : 'Lock axes'} style={{ background: 'none', border: 'none', color: scaleLocked ? '#4a9eff' : '#888', cursor: 'pointer', fontSize: '14px', padding: '0 2px', lineHeight: 1 }}>
+              {scaleLocked ? '🔗' : '⛓'}
+            </button>
+          </div>
+          {['x', 'y', 'z'].map(axis => (
+            <div key={axis} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span style={{ fontSize: '12px', color: '#888', width: '10px' }}>{axis.toUpperCase()}</span>
+              <input type="number" step="0.01" min="0.001" value={scaleInputs[axis]} onChange={(e) => onScaleChange(axis, e.target.value)}
+                style={{ flex: 1, background: '#333', border: 'none', borderRadius: '4px', color: 'white', padding: '6px 8px', fontSize: '12px' }} />
+            </div>
+          ))}
+        </>
+      )}
+
       {/* Lighting */}
       <div style={{ marginTop: '24px', borderTop: '1px solid #333', paddingTop: '16px' }}>
         <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>LIGHTING</div>
-        <label style={{ fontSize: '12px', color: '#888' }}>
-          Intensity: {envIntensity.toFixed(2)}
-        </label>
-        <input
-          type="range"
-          min="0"
-          max="3"
-          step="0.01"
-          value={envIntensity}
-          onChange={(e) => setEnvIntensity(parseFloat(e.target.value))}
-          style={{ width: '100%', marginTop: '4px' }}
-        />
+        <label style={{ fontSize: '12px', color: '#888' }}>Intensity: {envIntensity.toFixed(2)}</label>
+        <input type="range" min="0" max="3" step="0.01" value={envIntensity} onChange={(e) => setEnvIntensity(parseFloat(e.target.value))} style={{ width: '100%', marginTop: '4px' }} />
       </div>
 
-      {/* Embed / iframe generator */}
+      {/* Embed / share */}
       <div style={{ marginTop: '24px', borderTop: '1px solid #333', paddingTop: '20px' }}>
         <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>EMBED</div>
         <div style={{ display: 'flex', gap: '6px' }}>
-          <button
-            onClick={() => setShowEmbed(!showEmbed)}
-            style={{
-              flex: 1,
-              padding: '10px',
-              background: '#1a3a5c',
-              border: 'none',
-              borderRadius: '6px',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '13px',
-            }}
-          >
+          <button onClick={() => setShowEmbed(!showEmbed)} style={{ flex: 1, padding: '10px', background: '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px' }}>
             {showEmbed ? 'Hide iframe' : 'iframe code'}
           </button>
-          <button
-            onClick={handleShareLink}
-            disabled={sharing}
-            style={{
-              flex: 1,
-              padding: '10px',
-              background: shareMsg === 'Link copied!' ? '#1a5c2a' : shareMsg ? '#5c1a1a' : '#1a3a5c',
-              border: 'none',
-              borderRadius: '6px',
-              color: 'white',
-              cursor: sharing ? 'default' : 'pointer',
-              fontSize: '13px',
-              opacity: sharing ? 0.7 : 1,
-            }}
-          >
+          <button onClick={handleShareLink} disabled={sharing} style={{ flex: 1, padding: '10px', background: shareMsg === 'Link copied!' ? '#1a5c2a' : shareMsg ? '#5c1a1a' : '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: sharing ? 'default' : 'pointer', fontSize: '13px', opacity: sharing ? 0.7 : 1 }}>
             {shareMsg ?? (sharing ? 'Sharing…' : 'Share link')}
           </button>
         </div>
@@ -1108,7 +1009,6 @@ function App() {
   const { isLoaded, isSignedIn, userId } = useAuth()
   const { user } = useUser()
 
-  const [furnitureCatalog, setFurnitureCatalog] = useState([])
   const [placedFurniture, setPlacedFurniture] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -1116,7 +1016,6 @@ function App() {
   const [meshLists, setMeshLists] = useState({})
   const [navMode, setNavMode] = useState('orbit')
   const [isPointerLocked, setIsPointerLocked] = useState(false)
-  const [showNPanel, setShowNPanel] = useState(false)
   const [zMoveActive, setZMoveActive] = useState(false)
   const [rotPanelActive, setRotPanelActive] = useState(false)
   const [envIntensity, setEnvIntensity] = useState(0.09)
@@ -1142,7 +1041,6 @@ function App() {
   useEffect(() => {
     if (isEmbed) return
     const onKeyDown = (e) => {
-      if (e.key === 'n' || e.key === 'N') setShowNPanel(prev => !prev)
       if (!e.ctrlKey && (e.key === 'z' || e.key === 'Z')) setZMoveActive(prev => !prev)
       if (!e.ctrlKey && (e.key === 'r' || e.key === 'R') && selectedId) setRotPanelActive(prev => !prev)
       if (e.ctrlKey && e.key === 'z') {
@@ -1168,36 +1066,6 @@ function App() {
       if (decoded) setPlacedFurniture(decoded)
     }
   }, [])
-
-  useEffect(() => {
-    fetch('/furniture/manifest.json')
-      .then(res => res.json())
-      .then(data => {
-        const catalog = data.map(item => ({
-          ...item,
-          file: `/furniture/${item.file}`
-        }))
-        setFurnitureCatalog(catalog)
-      })
-      .catch(err => {
-        console.log('Could not load furniture manifest:', err)
-        setFurnitureCatalog([])
-      })
-  }, [])
-  
-  const addFurniture = (catalogItem) => {
-    const newItem = {
-      ...catalogItem,
-      instanceId: `${catalogItem.id}-${Date.now()}`,
-      position: [spawnOffset * 0.5, 0, spawnOffset * 0.5],
-      rotation: { x: 0, y: 0, z: 0 },
-      scale: { x: 1, y: 1, z: 1 },
-      material: { ...DEFAULT_MATERIAL, meshMaterials: {} },
-    }
-    saveHistory(placedFurniture)
-    setPlacedFurniture([...placedFurniture, newItem])
-    setSpawnOffset((spawnOffset + 1) % 10)
-  }
 
   const deleteSelected = () => {
     saveHistory(placedFurniture)
@@ -1433,8 +1301,6 @@ const updateScale = (instanceId, newScale) => {
       />
       {!isEmbed && (
         <Sidebar
-          furnitureCatalog={furnitureCatalog}
-          onAddFurniture={addFurniture}
           onDeleteSelected={deleteSelected}
           selectedId={selectedId}
           placedFurniture={placedFurniture}
@@ -1442,180 +1308,19 @@ const updateScale = (instanceId, newScale) => {
           meshLists={meshLists}
           envIntensity={envIntensity}
           setEnvIntensity={setEnvIntensity}
-          pointLightIntensity={pointLightIntensity}
-          setPointLightIntensity={setPointLightIntensity}
+          onSaveProject={handleSaveProject}
+          currentProjectName={currentProjectName}
+          onGoToDashboard={() => setAppScreen('dashboard')}
+          navMode={navMode}
+          onToggleNav={() => { setNavMode(navMode === 'orbit' ? 'fps' : 'orbit'); setIsPointerLocked(false) }}
+          zMoveActive={zMoveActive}
+          onToggleZMove={() => setZMoveActive(prev => !prev)}
+          onUploadMesh={() => uploadInputRef.current?.click()}
+          scaleLocked={scaleLocked}
+          onToggleScaleLock={() => setScaleLocked(prev => !prev)}
+          scaleInputs={scaleInputs}
+          onScaleChange={handleScaleChange}
         />
-      )}
-
-      {!isEmbed && (
-        <>
-          {/* N panel */}
-          {showNPanel && (
-            <div style={{
-              position: 'absolute',
-              right: 0,
-              top: 0,
-              width: '200px',
-              height: '100vh',
-              background: '#1a1a1a',
-              padding: '20px',
-              boxSizing: 'border-box',
-              color: 'white',
-              fontFamily: 'Arial, sans-serif',
-              overflowY: 'auto',
-              zIndex: 100,
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <button
-                  onClick={() => setAppScreen('dashboard')}
-                  style={{
-                    background: 'none', border: 'none', color: '#888',
-                    cursor: 'pointer', fontSize: '13px', padding: '4px 0',
-                  }}
-                >
-                  ← Projects
-                </button>
-                <UserButton />
-              </div>
-
-              <button
-                onClick={handleSaveProject}
-                style={{
-                  width: '100%', padding: '10px',
-                  background: '#1a5c2a', border: 'none', borderRadius: '6px',
-                  color: 'white', cursor: 'pointer', fontSize: '13px',
-                  marginBottom: '16px',
-                }}
-              >
-                {currentProjectName ? `💾 Save "${currentProjectName}"` : '💾 Save Project'}
-              </button>
-
-              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>NAVIGATION</div>
-              <button
-                onClick={() => {
-                  setNavMode(navMode === 'orbit' ? 'fps' : 'orbit')
-                  setIsPointerLocked(false)
-                }}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  background: '#333',
-                  border: 'none',
-                  borderRadius: '6px',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  textAlign: 'left',
-                }}
-              >
-                {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
-              </button>
-
-              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>TRANSFORM</div>
-              <button
-                onClick={() => setZMoveActive(prev => !prev)}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  marginTop: '4px',
-                  background: zMoveActive ? '#1a5c2a' : '#333',
-                  border: 'none',
-                  borderRadius: '6px',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  textAlign: 'left',
-                }}
-              >
-                ↕ Y Movement <span style={{ color: '#888', fontSize: '11px' }}>Z</span>
-              </button>
-              <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px', marginTop: '24px' }}>IMPORT</div>
-              <button
-                onClick={() => uploadInputRef.current?.click()}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  background: '#333',
-                  border: 'none',
-                  borderRadius: '6px',
-                  color: 'white',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  textAlign: 'left',
-                }}
-              >
-                ↑ Upload Mesh
-              </button>
-
-              {selectedId && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '24px', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '12px', color: '#888' }}>SCALE</span>
-                    <button
-                      onClick={() => setScaleLocked(prev => !prev)}
-                      title={scaleLocked ? 'Unlock axes' : 'Lock axes'}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: scaleLocked ? '#4a9eff' : '#888',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        padding: '0 2px',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {scaleLocked ? '🔗' : '⛓'}
-                    </button>
-                  </div>
-                  {['x', 'y', 'z'].map(axis => (
-                    <div key={axis} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                      <span style={{ fontSize: '12px', color: '#888', width: '10px' }}>{axis.toUpperCase()}</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.001"
-                        value={scaleInputs[axis]}
-                        onChange={(e) => handleScaleChange(axis, e.target.value)}
-                        style={{
-                          flex: 1,
-                          background: '#333',
-                          border: 'none',
-                          borderRadius: '4px',
-                          color: 'white',
-                          padding: '6px 8px',
-                          fontSize: '12px',
-                        }}
-                      />
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-
-          {/* N tab */}
-          <div
-            onClick={() => setShowNPanel(prev => !prev)}
-            style={{
-              position: 'absolute',
-              right: showNPanel ? '200px' : '0',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              zIndex: 101,
-              background: '#333',
-              color: 'white',
-              padding: '8px 4px',
-              borderRadius: '4px 0 0 4px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontFamily: 'Arial, sans-serif',
-              writingMode: 'vertical-rl',
-              userSelect: 'none',
-            }}
-          >
-            N
-          </div>
-        </>
       )}
 
       {!isEmbed && navMode === 'fps' && !isPointerLocked && (
