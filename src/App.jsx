@@ -1,7 +1,6 @@
 import { useRef, useState, useMemo, Suspense, useEffect, memo } from 'react'
 import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Html } from '@react-three/drei'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three/webgpu'
 import { upload } from '@vercel/blob/client'
@@ -226,73 +225,6 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     }
   }, [clonedScene, JSON.stringify(materialSettings)]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    const group = groupRef.current
-    if (!group || !isSelected || !clonedScene) return
-
-    const isPartSelected = selectedPart !== 'all'
-    const sourceGeos = []
-    let targetParent
-
-    if (isPartSelected) {
-      const meshes = []
-      clonedScene.traverse(child => { if (child.isMesh && child.geometry && !child.userData.isOutline) meshes.push(child) })
-      const mesh = meshes[parseInt(selectedPart)]
-      if (!mesh) return
-      // Parent the outline to the part mesh itself — it follows automatically when the mesh moves
-      targetParent = mesh
-      sourceGeos.push(mesh.geometry.clone()) // geometry is already in mesh local space
-    } else {
-      targetParent = group
-      group.updateWorldMatrix(true, true)
-      const invGroup = new THREE.Matrix4().copy(group.matrixWorld).invert()
-      clonedScene.traverse(child => {
-        if (!child.isMesh || !child.geometry || child.userData.isOutline) return
-        const geo = child.geometry.clone()
-        geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(invGroup, child.matrixWorld))
-        sourceGeos.push(geo)
-      })
-    }
-
-    if (!sourceGeos.length) return
-    const merged = sourceGeos.length === 1 ? sourceGeos[0] : mergeGeometries(sourceGeos, false)
-    if (sourceGeos.length > 1) sourceGeos.forEach(g => g.dispose())
-    if (!merged) return
-
-    const expandedGeo = merged.clone()
-    const posAttr = expandedGeo.getAttribute('position')
-    const norAttr = expandedGeo.getAttribute('normal')
-    if (posAttr && norAttr) {
-      const thickness = 0.0175
-      for (let i = 0; i < posAttr.count; i++) {
-        posAttr.setXYZ(i,
-          posAttr.getX(i) + norAttr.getX(i) * thickness,
-          posAttr.getY(i) + norAttr.getY(i) * thickness,
-          posAttr.getZ(i) + norAttr.getZ(i) * thickness
-        )
-      }
-      posAttr.needsUpdate = true
-    }
-    const outlineMat = new THREE.MeshBasicNodeMaterial({
-      color: new THREE.Color(isPartSelected ? '#ffaa44' : '#89c4ff'),
-      side: THREE.BackSide,
-      depthTest: true,
-      depthWrite: false,
-    })
-    const outlineMesh = new THREE.Mesh(expandedGeo, outlineMat)
-    outlineMesh.userData.isOutline = true
-    outlineMesh.renderOrder = 1
-    outlineMesh.castShadow = false
-    outlineMesh.receiveShadow = false
-    targetParent.add(outlineMesh)
-
-    return () => {
-      outlineMat.dispose()
-      merged.dispose()
-      expandedGeo.dispose()
-      targetParent.remove(outlineMesh)
-    }
-  }, [isSelected, selectedPart, clonedScene])
 
   const bind = useDrag(({ active, first, last, event }) => {
     const partMesh = isSelected ? selectedMeshRef.current : null
