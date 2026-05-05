@@ -546,8 +546,8 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
       <ambientLight intensity={pointLightIntensity ?? 0.3} color="#ffffff" />
 
       <directionalLight position={[5, 8, 5]} intensity={1.8} castShadow
-        shadow-bias={-0.002}
-        shadow-normalBias={0.3}
+        shadow-bias={-0.0005}
+        shadow-normalBias={0.02}
         shadow-radius={3}
         shadow-mapSize={[1024, 1024]}
       >
