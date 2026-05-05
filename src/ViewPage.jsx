@@ -101,7 +101,7 @@ export default function ViewPage() {
       </div>
 
       <Canvas
-        shadows={{ type: THREE.PCFSoftShadowMap }}
+        shadows
         camera={{ position: [5, 5, 5], fov: 50 }}
         dpr={[1, 1.5]}
         style={{ width: '100%', height: '100%', background: '#e0e0e0' }}
@@ -110,6 +110,8 @@ export default function ViewPage() {
           renderer.toneMapping = THREE.ACESFilmicToneMapping
           renderer.toneMappingExposure = 0.9
           await renderer.init()
+          renderer.shadowMap.enabled = true
+          renderer.shadowMap.type = THREE.VSMShadowMap
           return renderer
         }}
       >
