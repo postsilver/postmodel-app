@@ -228,6 +228,29 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     }
   }, [clonedScene, JSON.stringify(materialSettings)]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Selection outline — backface hull on all meshes of the selected object
+  useEffect(() => {
+    if (!clonedScene) return
+    if (!isSelected) {
+      clonedScene.traverse(child => {
+        if (child.userData.isOutline) child.parent?.remove(child)
+      })
+      return
+    }
+    const added = []
+    clonedScene.traverse(child => {
+      if (!child.isMesh || child.userData.isOutline) return
+      const mat = new THREE.MeshBasicNodeMaterial({ color: '#ffffff', side: THREE.BackSide })
+      const outline = new THREE.Mesh(child.geometry, mat)
+      outline.scale.setScalar(1.04)
+      outline.userData.isOutline = true
+      child.add(outline)
+      added.push({ parent: child, mesh: outline })
+    })
+    return () => {
+      added.forEach(({ parent, mesh }) => { parent.remove(mesh); mesh.material.dispose() })
+    }
+  }, [clonedScene, isSelected])
 
   const bind = useDrag(({ active, first, last, event }) => {
     const partMesh = isSelected ? selectedMeshRef.current : null
