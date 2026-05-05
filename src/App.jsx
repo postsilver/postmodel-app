@@ -210,8 +210,8 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
             texture.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
           }
           if (child.material) {
-            if (child.material.map) child.material.map.dispose()
-            child.material.dispose()
+            if (child.material.map && typeof child.material.map.dispose === 'function') child.material.map.dispose()
+            if (typeof child.material.dispose === 'function') child.material.dispose()
           }
           child.material = new THREE.MeshStandardNodeMaterial({
             color: texture ? '#ffffff' : (settings.color || '#cccccc'),
@@ -1240,12 +1240,14 @@ const updateScale = (instanceId, newScale) => {
       })
       const url = blob.url
 
-      // Record blob + update storage quota
-      fetch('/api/upload-complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, blobUrl: url, filename: file.name, fileSize: file.size }),
-      }).catch(() => {})
+      // Record blob + update storage quota (skip for guests)
+      if (userId) {
+        fetch('/api/upload-complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, blobUrl: url, filename: file.name, fileSize: file.size }),
+        }).catch(() => {})
+      }
 
       const isGltf = ext === 'glb' || ext === 'gltf'
       const newItem = {
