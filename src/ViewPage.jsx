@@ -111,7 +111,7 @@ export default function ViewPage() {
           renderer.toneMappingExposure = 0.9
           await renderer.init()
           renderer.shadowMap.enabled = true
-          renderer.shadowMap.type = THREE.VSMShadowMap
+          renderer.shadowMap.type = THREE.PCFShadowMap
           return renderer
         }}
       >

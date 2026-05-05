@@ -546,13 +546,12 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
       <ambientLight intensity={pointLightIntensity ?? 0.3} color="#ffffff" />
 
       <directionalLight position={[5, 8, 5]} intensity={1.8} castShadow
-        shadow-bias={-0.001}
-        shadow-normalBias={0.05}
-        shadow-radius={8}
-        shadow-blurSamples={25}
-        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.002}
+        shadow-normalBias={0.3}
+        shadow-radius={3}
+        shadow-mapSize={[1024, 1024]}
       >
-        <orthographicCamera attach="shadow-camera" left={-12} right={12} top={12} bottom={-12} near={0.5} far={40} />
+        <orthographicCamera attach="shadow-camera" left={-15} right={15} top={15} bottom={-15} near={0.5} far={50} />
       </directionalLight>
 
       <directionalLight position={[-4, 5, -3]} intensity={0.7} />
@@ -1583,7 +1582,7 @@ const updateScale = (instanceId, newScale) => {
             renderer.toneMappingExposure = 0.9
             await renderer.init()
             renderer.shadowMap.enabled = true
-            renderer.shadowMap.type = THREE.VSMShadowMap
+            renderer.shadowMap.type = THREE.PCFShadowMap
             return renderer
           }}
           onPointerDown={e => { canvasPointerDown.current = { x: e.clientX, y: e.clientY } }}

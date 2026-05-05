@@ -55,13 +55,13 @@ export default function SSGIPostProcessing({ mode = 'rendered' }) {
       const sceneNormal = sample((uv) => colorToDirection(scenePassNormal.sample(uv)))
 
       const giPass = ssgi(scenePassColor, scenePassDepth, sceneNormal, camera)
-      giPass.sliceCount.value = 1
-      giPass.stepCount.value = 4
-      giPass.radius.value = 1
+      giPass.sliceCount.value = 2
+      giPass.stepCount.value = 6
+      giPass.radius.value = 2
       giPass.expFactor.value = 1.5
-      giPass.thickness.value = 0.5
-      giPass.backfaceLighting.value = 0.5
-      giPass.aoIntensity.value = 1.5
+      giPass.thickness.value = 0.3
+      giPass.backfaceLighting.value = 0.3
+      giPass.aoIntensity.value = 2.0
       giPass.giIntensity.value = 0
       giPass.useScreenSpaceSampling.value = true
       giPass.useTemporalFiltering = false
