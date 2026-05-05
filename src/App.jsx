@@ -210,8 +210,11 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
             texture.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
           }
           if (child.material) {
-            if (child.material.map && typeof child.material.map.dispose === 'function') child.material.map.dispose()
-            if (typeof child.material.dispose === 'function') child.material.dispose()
+            const mats = Array.isArray(child.material) ? child.material : [child.material]
+            mats.forEach(mat => {
+              if (mat.map && typeof mat.map.dispose === 'function') mat.map.dispose()
+              if (typeof mat.dispose === 'function') mat.dispose()
+            })
           }
           child.material = new THREE.MeshStandardNodeMaterial({
             color: texture ? '#ffffff' : (settings.color || '#cccccc'),
@@ -404,15 +407,24 @@ function DraggableFurniture({ path, ...rest }) {
 }
 
 function floorSnap(obj3d) {
+  obj3d.updateMatrixWorld(true)
   const box = new THREE.Box3().setFromObject(obj3d)
+  if (box.isEmpty()) return
+  // Auto-scale extreme sizes (e.g. FBX without unit conversion)
+  const size = new THREE.Vector3()
+  box.getSize(size)
+  const maxDim = Math.max(size.x, size.y, size.z)
+  if (maxDim > 50 || maxDim < 0.05) {
+    obj3d.scale.multiplyScalar(2 / maxDim)
+    obj3d.updateMatrixWorld(true)
+    box.setFromObject(obj3d)
+  }
+  // Move root object so bounding box bottom sits at y=0, centered on XZ
   const center = new THREE.Vector3()
   box.getCenter(center)
-  obj3d.traverse((child) => {
-    if (child.isMesh && child.geometry) {
-      child.geometry = child.geometry.clone()
-      child.geometry.translate(-center.x, -box.min.y, -center.z)
-    }
-  })
+  obj3d.position.x -= center.x
+  obj3d.position.y -= box.min.y
+  obj3d.position.z -= center.z
 }
 
 async function loadMesh(sourceUrl, fileFormat) {
