@@ -619,7 +619,7 @@ export function ViewportMode({ mode, placedFurniture }) {
   return null
 }
 
-function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh, selectedPart, onPartSelect }) {
+function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh, selectedPart, onPartSelect, isGuest }) {
   const [showEmbed, setShowEmbed] = useState(false)
   const [baseUrl, setBaseUrl] = useState('')
   const [embedWidth, setEmbedWidth] = useState(800)
@@ -677,17 +677,21 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
       color: 'white', fontFamily: 'Arial, sans-serif', overflowY: 'auto', zIndex: 100,
     }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <button onClick={onGoToDashboard} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '13px', padding: '4px 0' }}>
-          ← Projects
-        </button>
-        <UserButton />
-      </div>
+      {!isGuest && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <button onClick={onGoToDashboard} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '13px', padding: '4px 0' }}>
+            ← Projects
+          </button>
+          <UserButton />
+        </div>
+      )}
 
       {/* Save Project */}
-      <button onClick={onSaveProject} style={{ ...btnStyle, background: '#1a5c2a', marginBottom: '20px' }}>
-        {currentProjectName ? `💾 Save "${currentProjectName}"` : '💾 Save Project'}
-      </button>
+      {!isGuest && (
+        <button onClick={onSaveProject} style={{ ...btnStyle, background: '#1a5c2a', marginBottom: '20px' }}>
+          {currentProjectName ? `💾 Save "${currentProjectName}"` : '💾 Save Project'}
+        </button>
+      )}
 
       {/* Import */}
       <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>IMPORT</div>
@@ -1060,6 +1064,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
 
 function App() {
   const isEmbed = new URLSearchParams(window.location.search).get('embed') === '1'
+  const isGuest = new URLSearchParams(window.location.search).get('guest') === '1'
   const { isLoaded, isSignedIn, userId } = useAuth()
   const { user } = useUser()
 
@@ -1081,7 +1086,7 @@ function App() {
   const [isDragOver, setIsDragOver] = useState(false)
   const [scaleLocked, setScaleLocked] = useState(true)
   const [scaleInputs, setScaleInputs] = useState({ x: '1', y: '1', z: '1' })
-  const [appScreen, setAppScreen] = useState('dashboard')
+  const [appScreen, setAppScreen] = useState(isGuest ? 'editor' : 'dashboard')
   const [currentProjectId, setCurrentProjectId] = useState(null)
   const [currentProjectName, setCurrentProjectName] = useState(null)
   const [saveToast, setSaveToast] = useState(null)
@@ -1334,8 +1339,8 @@ const updateScale = (instanceId, newScale) => {
     }).catch(() => {})
   }, [isSignedIn, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!isEmbed && !isLoaded) return null
-  if (!isEmbed && !isSignedIn) return (
+  if (!isEmbed && !isGuest && !isLoaded) return null
+  if (!isEmbed && !isGuest && !isSignedIn) return (
     <div style={{
       width: '100vw', height: '100vh',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1345,7 +1350,7 @@ const updateScale = (instanceId, newScale) => {
     </div>
   )
 
-  if (!isEmbed && appScreen === 'dashboard') return (
+  if (!isEmbed && !isGuest && appScreen === 'dashboard') return (
     <ProjectDashboard
       userId={userId}
       onNewProject={handleNewProject}
@@ -1376,6 +1381,7 @@ const updateScale = (instanceId, newScale) => {
           onUploadMesh={() => uploadInputRef.current?.click()}
           selectedPart={selectedPart}
           onPartSelect={setSelectedPart}
+          isGuest={isGuest}
         />
       )}
 
