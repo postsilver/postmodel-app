@@ -670,7 +670,7 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
       })
       if (!res.ok) throw new Error('Server error')
       const { id } = await res.json()
-      await navigator.clipboard.writeText(`https://postmodel.vercel.app/view/${id}`)
+      await navigator.clipboard.writeText(`${window.location.origin}/view/${id}`)
       setShareMsg('Link copied!')
     } catch {
       setShareMsg('Failed — try again')
