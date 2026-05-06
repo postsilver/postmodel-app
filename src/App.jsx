@@ -7,7 +7,6 @@ import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
-import SelectionOutlinePass from './components/SelectionOutlinePass.jsx'
 
 extend(THREE)
 
@@ -1602,8 +1601,7 @@ const updateScale = (instanceId, newScale) => {
             if (Math.sqrt(dx * dx + dy * dy) < 5) setSelectedId(null)
           }}
         >
-          <SSGIPostProcessing mode={renderMode} />
-          <SelectionOutlinePass selectedScene={selectedScene} />
+          <SSGIPostProcessing mode={renderMode} selectedScene={selectedScene} />
           <ViewportMode mode={renderMode} placedFurniture={placedFurniture} />
           <Suspense fallback={null}>
             <Scene
