@@ -3,11 +3,11 @@ import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Html } from '@react-three/drei'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three/webgpu'
-import { positionLocal, normalLocal } from 'three/tsl'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
+import SelectionOutlinePass from './components/SelectionOutlinePass.jsx'
 
 extend(THREE)
 
@@ -101,7 +101,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef }) {
+function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef, onSelectScene }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -229,26 +229,11 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     }
   }, [clonedScene, JSON.stringify(materialSettings)]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── SELECTION OUTLINE ── remove this entire useEffect block to disable
+  // Notify SelectionOutlinePass when this object is selected/deselected
   useEffect(() => {
-    if (!clonedScene) return
-    const toRemove = []
-    clonedScene.traverse(child => { if (child.userData.isOutline) toRemove.push(child) })
-    toRemove.forEach(child => { child.parent?.remove(child); child.material?.dispose() })
-    if (!isSelected) return
-    const added = []
-    clonedScene.traverse(child => {
-      if (!child.isMesh || child.userData.isOutline) return
-      const mat = new THREE.MeshBasicNodeMaterial({ color: '#ffffff', side: THREE.BackSide })
-      mat.positionNode = positionLocal.add(normalLocal.normalize().mul(0.025))
-      const outline = new THREE.Mesh(child.geometry, mat)
-      outline.userData.isOutline = true
-      child.add(outline)
-      added.push({ parent: child, mesh: outline })
-    })
-    return () => { added.forEach(({ parent, mesh }) => { parent.remove(mesh); mesh.material?.dispose() }) }
-  }, [clonedScene, isSelected])
-  // ── END SELECTION OUTLINE ──
+    if (isSelected && clonedScene) onSelectScene?.(clonedScene)
+    return () => { if (isSelected) onSelectScene?.(null) }
+  }, [isSelected, clonedScene]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const bind = useDrag(({ active, first, last, event }) => {
     const partMesh = isSelected ? selectedMeshRef.current : null
@@ -556,7 +541,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, onSelectScene }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -607,6 +592,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           onUpdatePartTransform: onUpdatePartTransform ? (partIndex, transforms) => onUpdatePartTransform(item.instanceId, partIndex, transforms) : undefined,
           selectedPart: selectedId === item.instanceId ? selectedPart : 'all',
           orbitRef,
+          onSelectScene,
         }
         return (
           <Suspense key={item.instanceId} fallback={null}>
@@ -1114,6 +1100,7 @@ function App() {
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [renderMode, setRenderMode] = useState('rendered')
+  const [selectedScene, setSelectedScene] = useState(null)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -1148,7 +1135,7 @@ function App() {
   }, [isEmbed, selectedId])
 
   useEffect(() => {
-    if (!selectedId) { setRotPanelActive(false); setSelectedPart('all') }
+    if (!selectedId) { setRotPanelActive(false); setSelectedPart('all'); setSelectedScene(null) }
     // Don't auto-reset selectedPart on object switch — sidebar click handlers set it explicitly
   }, [selectedId])
 
@@ -1616,6 +1603,7 @@ const updateScale = (instanceId, newScale) => {
           }}
         >
           <SSGIPostProcessing mode={renderMode} />
+          <SelectionOutlinePass selectedScene={selectedScene} />
           <ViewportMode mode={renderMode} placedFurniture={placedFurniture} />
           <Suspense fallback={null}>
             <Scene
@@ -1637,6 +1625,7 @@ const updateScale = (instanceId, newScale) => {
               onUpdateRotation={updateRotation}
               onUpdatePartTransform={updatePartTransform}
               selectedPart={selectedPart}
+              onSelectScene={setSelectedScene}
             />
           </Suspense>
         </Canvas>
