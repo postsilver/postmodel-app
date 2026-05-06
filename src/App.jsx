@@ -1179,9 +1179,31 @@ function App() {
   }, [])
 
   const deleteSelected = () => {
+    const item = placedFurniture.find(i => i.instanceId === selectedId)
     saveHistory(placedFurniture)
-    setPlacedFurniture(placedFurniture.filter(item => item.instanceId !== selectedId))
+    setPlacedFurniture(placedFurniture.filter(i => i.instanceId !== selectedId))
     setSelectedId(null)
+
+    // Delete blobs from Vercel storage for authenticated users.
+    // Guests: blobs auto-expire after 72h via cron — no action needed here.
+    if (item && userId) {
+      const toDelete = new Set()
+      if (item.sourceUrl?.startsWith('https://')) toDelete.add(item.sourceUrl)
+      // Only delete texture if no other scene item references the same URL
+      if (item.material?.textureUrl?.startsWith('https://')) {
+        const isShared = placedFurniture.some(
+          other => other.instanceId !== selectedId && other.material?.textureUrl === item.material.textureUrl
+        )
+        if (!isShared) toDelete.add(item.material.textureUrl)
+      }
+      toDelete.forEach(url => {
+        fetch('/api/blob-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, userId }),
+        }).catch(() => {})
+      })
+    }
   }
 
   const updateMaterial = (instanceId, newMaterial) => {
@@ -1290,14 +1312,13 @@ const updateScale = (instanceId, newScale) => {
       })
       const url = blob.url
 
-      // Record blob + update storage quota (skip for guests)
-      if (userId) {
-        fetch('/api/upload-complete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, blobUrl: url, filename: file.name, fileSize: file.size }),
-        }).catch(() => {})
-      }
+      // Track blob for all users: authenticated users get quota accounting,
+      // guests get a 72h auto-expiry so the cron job cleans them up.
+      fetch('/api/upload-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: userId || null, blobUrl: url, filename: file.name, fileSize: file.size }),
+      }).catch(() => {})
 
       const isGltf = ext === 'glb' || ext === 'gltf'
       const newItem = {

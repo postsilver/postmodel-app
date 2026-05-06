@@ -7,26 +7,34 @@ export default async function handler(req, res) {
 
   try {
     const { userId, blobUrl, filename, fileSize } = req.body
-    if (!userId || !blobUrl) {
-      return res.status(400).json({ error: 'Missing required fields' })
+    if (!blobUrl) {
+      return res.status(400).json({ error: 'Missing blobUrl' })
     }
 
     const sql = neon(process.env.DATABASE_URL)
     const id = crypto.randomUUID()
 
-    await sql`
-      INSERT INTO blobs (id, user_id, url, filename, size, expires_at)
-      VALUES (${id}, ${userId}, ${blobUrl}, ${filename}, ${fileSize ?? 0}, NOW() + INTERVAL '80 hours')
-    `
-
-    const rows = await sql`
-      UPDATE users SET storage_used = storage_used + ${fileSize ?? 0}
-      WHERE id = ${userId}
-      RETURNING storage_used
-    `
-
-    const newStorageUsed = rows[0] ? Number(rows[0].storage_used) : null
-    return res.status(200).json({ success: true, newStorageUsed })
+    if (userId) {
+      // Authenticated user: 80-hour expiry, update storage quota
+      await sql`
+        INSERT INTO blobs (id, user_id, url, filename, size, expires_at)
+        VALUES (${id}, ${userId}, ${blobUrl}, ${filename ?? ''}, ${fileSize ?? 0}, NOW() + INTERVAL '80 hours')
+      `
+      const rows = await sql`
+        UPDATE users SET storage_used = storage_used + ${fileSize ?? 0}
+        WHERE id = ${userId}
+        RETURNING storage_used
+      `
+      const newStorageUsed = rows[0] ? Number(rows[0].storage_used) : null
+      return res.status(200).json({ success: true, newStorageUsed })
+    } else {
+      // Guest user: 72-hour expiry, no quota tracking (user_id = NULL)
+      await sql`
+        INSERT INTO blobs (id, user_id, url, filename, size, expires_at)
+        VALUES (${id}, NULL, ${blobUrl}, ${filename ?? ''}, ${fileSize ?? 0}, NOW() + INTERVAL '72 hours')
+      `
+      return res.status(200).json({ success: true, newStorageUsed: null })
+    }
   } catch (err) {
     console.error('upload-complete error:', err)
     return res.status(500).json({ error: err.message })
