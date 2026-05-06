@@ -228,14 +228,23 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     }
   }, [clonedScene, JSON.stringify(materialSettings)]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Notify SelectionOutlinePass when this object is selected/deselected
+  // Notify SSGIPostProcessing which object/part to outline.
+  // Passes the specific child mesh when a part is selected, full scene otherwise.
   useEffect(() => {
-    if (isSelected && clonedScene) onSelectScene?.(clonedScene)
-    return () => { if (isSelected) onSelectScene?.(null) }
-  }, [isSelected, clonedScene]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isSelected || !clonedScene) return
+    if (selectedPart !== 'all') {
+      const meshes = []
+      clonedScene.traverse(c => { if (c.isMesh && !c.userData.isOutline) meshes.push(c) })
+      const target = meshes[parseInt(selectedPart)]
+      if (target) { onSelectScene?.(target); return () => onSelectScene?.(null) }
+    }
+    onSelectScene?.(clonedScene)
+    return () => onSelectScene?.(null)
+  }, [isSelected, clonedScene, selectedPart]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const bind = useDrag(({ active, first, last, event }) => {
-    const partMesh = isSelected ? selectedMeshRef.current : null
+    // When Z-move is active we always move the parent group, even if a child part is selected
+    const partMesh = isSelected && !zMoveActive ? selectedMeshRef.current : null
     if (first) {
       onDragStart()
       onSelect()
@@ -639,6 +648,7 @@ export function ViewportMode({ mode, placedFurniture }) {
 
 function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh, selectedPart, onPartSelect, isGuest }) {
   const [showEmbed, setShowEmbed] = useState(false)
+  const [collapsedItems, setCollapsedItems] = useState(new Set())
   const [baseUrl, setBaseUrl] = useState('')
   const [embedWidth, setEmbedWidth] = useState(800)
   const [embedHeight, setEmbedHeight] = useState(600)
@@ -722,12 +732,22 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
             SCENE
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {placedFurniture.map((item, index) => {
+            {placedFurniture.map((item) => {
               const itemMeshList = meshLists[item.instanceId] || []
               const isItemSelected = selectedId === item.instanceId
+              const hasChildren = itemMeshList.length > 1
+              const isCollapsed = collapsedItems.has(item.instanceId)
+              const toggleCollapse = (e) => {
+                e.stopPropagation()
+                setCollapsedItems(prev => {
+                  const next = new Set(prev)
+                  next.has(item.instanceId) ? next.delete(item.instanceId) : next.add(item.instanceId)
+                  return next
+                })
+              }
               return (
                 <div key={item.instanceId}>
-                  {/* Object row */}
+                  {/* Parent object row */}
                   <div
                     onClick={() => { onSelectItem(item.instanceId); onPartSelect('all') }}
                     style={{
@@ -741,15 +761,26 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
                     onMouseEnter={e => { if (!(isItemSelected && selectedPart === 'all')) e.currentTarget.style.background = '#252525' }}
                     onMouseLeave={e => { e.currentTarget.style.background = isItemSelected && selectedPart === 'all' ? '#2a4a6a' : 'transparent' }}
                   >
-                    <svg viewBox="0 0 16 16" width="11" height="11" style={{ flexShrink: 0, opacity: 0.55 }}>
-                      <path d="M8 1 L14 4.5 L14 11.5 L8 15 L2 11.5 L2 4.5 Z" fill="currentColor" />
-                    </svg>
+                    {/* Collapse chevron — only shown when there are children */}
+                    {hasChildren ? (
+                      <svg
+                        onClick={toggleCollapse}
+                        viewBox="0 0 16 16" width="10" height="10"
+                        style={{ flexShrink: 0, opacity: 0.6, transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}
+                      >
+                        <path d="M4 6 L8 10 L12 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 16 16" width="11" height="11" style={{ flexShrink: 0, opacity: 0.55 }}>
+                        <path d="M8 1 L14 4.5 L14 11.5 L8 15 L2 11.5 L2 4.5 Z" fill="currentColor" />
+                      </svg>
+                    )}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.name}#{index + 1}
+                      {item.name}
                     </span>
                   </div>
-                  {/* Sub-mesh rows — always visible */}
-                  {itemMeshList.length > 1 && itemMeshList.map((mesh, meshIndex) => {
+                  {/* Child mesh rows — hidden when collapsed */}
+                  {hasChildren && !isCollapsed && itemMeshList.map((mesh, meshIndex) => {
                     const isPartSel = isItemSelected && selectedPart === String(meshIndex)
                     return (
                       <div
