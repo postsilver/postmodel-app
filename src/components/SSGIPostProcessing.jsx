@@ -25,7 +25,7 @@ import {
 import { ssgi } from 'three/examples/jsm/tsl/display/SSGINode.js'
 import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 
-const OUTLINE = { r: 0.1, g: 0.3, b: 0.8 }
+const OUTLINE = { r: 0.05, g: 0.15, b: 0.55 }
 
 // Build a Sobel edge-detection node over a mask texture node.
 // resUniform is a shared vec2 uniform(width, height) — same ref in both pipelines.
