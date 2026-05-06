@@ -27,14 +27,32 @@ import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 
 const OUTLINE = { r: 1.0, g: 0.55, b: 0.0 }
 
+// Build a Sobel edge-detection node over a mask texture node.
+// resUniform is a shared vec2 uniform(width, height) — same ref in both pipelines.
+function buildEdgeNode(maskTex, resUniform) {
+  return Fn(() => {
+    const px = vec2(1.0).div(resUniform)
+    const screenUV = uv()
+    const s = (ox, oy) => maskTex.uv(screenUV.add(px.mul(vec2(ox, oy)))).r
+    const gx = s(-1,-1).mul(-1).add(s(1,-1))
+      .add(s(-1, 0).mul(-2)).add(s(1, 0).mul(2))
+      .add(s(-1, 1).mul(-1)).add(s(1, 1))
+    const gy = s(-1,-1).mul(-1).add(s(-1, 1))
+      .add(s( 0,-1).mul(-2)).add(s(0,  1).mul(2))
+      .add(s( 1,-1).mul(-1)).add(s(1,  1))
+    return max(abs(gx), abs(gy)).clamp(0, 1)
+  })()
+}
+
 export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = null }) {
   const { gl: renderer, scene, camera, size } = useThree()
-  const ppRef = useRef(null)
+  const renderPPRef = useRef(null)  // SSGI pipeline (rendered mode)
+  const simplePPRef = useRef(null)  // Plain pipeline (solid / mesh modes)
   const failedRef = useRef(false)
   const maskMeshes = useRef([])
   const resUniformRef = useRef(null)
 
-  // Lazy-init mask scene and white material (synchronous so setup effect sees them immediately)
+  // Synchronous lazy-init so both refs are ready before the setup effect runs.
   const maskSceneRef = useRef(null)
   const whiteMatRef = useRef(null)
   if (!maskSceneRef.current) {
@@ -45,7 +63,7 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
     whiteMatRef.current = new THREE.MeshBasicNodeMaterial({ color: '#ffffff' })
   }
 
-  // Rebuild mask meshes when selection changes
+  // Rebuild white-silhouette meshes whenever the selected object changes.
   useEffect(() => {
     const ms = maskSceneRef.current
     maskMeshes.current.forEach(m => ms.remove(m))
@@ -63,16 +81,15 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
     maskMeshes.current = meshes
   }, [selectedScene])
 
-  // Resize: keep the Sobel pixel-size uniform in sync
+  // Keep the Sobel pixel-size uniform in sync with viewport size.
   useEffect(() => {
     if (resUniformRef.current) resUniformRef.current.value.set(size.width, size.height)
   }, [size])
 
+  // Build both PostProcessing pipelines once.
   useEffect(() => {
     if (failedRef.current) return
-
-    const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator
-    if (!hasWebGPU) {
+    if (typeof navigator === 'undefined' || !('gpu' in navigator)) {
       console.warn('[viewer] WebGPU unavailable — rendering without SSGI.')
       failedRef.current = true
       return
@@ -81,17 +98,21 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
     let disposed = false
 
     try {
-      const scenePass = pass(scene, camera)
+      const bgColor = uniform(new THREE.Color('#e0e0e0'))
+      const resUniform = uniform(new THREE.Vector2(size.width, size.height))
+      resUniformRef.current = resUniform
 
+      // ── RENDERED PIPELINE — SSGI + AO + outline ───────────────────────────────
+      const scenePass = pass(scene, camera)
       scenePass.setMRT(mrt({
         output,
         diffuseColor,
         normal: directionToColor(normalView),
       }))
 
-      const scenePassColor = scenePass.getTextureNode('output')
+      const scenePassColor  = scenePass.getTextureNode('output')
       const scenePassDiffuse = scenePass.getTextureNode('diffuseColor')
-      const scenePassDepth = scenePass.getTextureNode('depth')
+      const scenePassDepth  = scenePass.getTextureNode('depth')
       const scenePassNormal = scenePass.getTextureNode('normal')
 
       const sceneNormal = sample((uvArg) => colorToDirection(scenePassNormal.sample(uvArg)))
@@ -117,69 +138,66 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
 
       const gi = giPass.rgb
       const ao = denoisePass.r
+      const hasGeometryR = scenePassColor.a
 
-      const hasGeometry = scenePassColor.a
-
-      const sceneColor = vec4(
+      const ssgiComposite = vec4(
         add(scenePassColor.rgb.mul(ao), scenePassDiffuse.rgb.mul(gi)),
-        hasGeometry,
+        hasGeometryR,
       )
-
-      const bgColor = uniform(new THREE.Color('#e0e0e0'))
-      const composited = vec4(
-        tslMix(bgColor, sceneColor.rgb, hasGeometry),
+      const ssgiWithBg = vec4(
+        tslMix(bgColor, ssgiComposite.rgb, hasGeometryR),
         float(1),
       )
 
-      // ── SELECTION OUTLINE ──────────────────────────────────────────────────────
-      // Mask pass renders selected object as white silhouette on black — no direct
-      // renderer.render() calls; everything runs inside the PostProcessing graph.
-      // To remove: delete from here to END SELECTION OUTLINE, and change
-      // pp.outputNode back to composited.renderOutput().
-      const maskPass = pass(maskSceneRef.current, camera)
-      const maskTex = maskPass.getTextureNode()
+      // Each pipeline gets its own pass() node for the mask scene to keep the
+      // node graphs fully isolated — no shared compiled-shader state between PPs.
+      const maskPassR = pass(maskSceneRef.current, camera)
+      const edgeR = buildEdgeNode(maskPassR.getTextureNode(), resUniform)
 
-      const resUniform = uniform(new THREE.Vector2(size.width, size.height))
-      resUniformRef.current = resUniform
+      const renderPP = new THREE.PostProcessing(renderer)
+      renderPP.outputNode = vec4(
+        ssgiWithBg.rgb.add(vec3(OUTLINE.r, OUTLINE.g, OUTLINE.b).mul(edgeR)),
+        float(1),
+      ).renderOutput()
 
-      const edgeNode = Fn(() => {
-        const px = vec2(1.0).div(resUniform)
-        const screenUV = uv()
-        const s = (ox, oy) => maskTex.uv(screenUV.add(px.mul(vec2(ox, oy)))).r
-        const gx = s(-1,-1).mul(-1).add(s(1,-1))
-          .add(s(-1, 0).mul(-2)).add(s(1, 0).mul(2))
-          .add(s(-1, 1).mul(-1)).add(s(1, 1))
-        const gy = s(-1,-1).mul(-1).add(s(-1, 1))
-          .add(s( 0,-1).mul(-2)).add(s(0,  1).mul(2))
-          .add(s( 1,-1).mul(-1)).add(s(1,  1))
-        return max(abs(gx), abs(gy)).clamp(0, 1)
-      })()
+      // ── SIMPLE PIPELINE — plain scene render + outline (solid / mesh modes) ───
+      // Uses the same scene so ViewportMode's material overrides apply correctly.
+      const simpleScenePass = pass(scene, camera)
+      const simpleColor = simpleScenePass.getTextureNode()
+      const hasGeometryS = simpleColor.a
 
-      const finalOutput = vec4(
-        composited.rgb.add(vec3(OUTLINE.r, OUTLINE.g, OUTLINE.b).mul(edgeNode)),
+      const simpleWithBg = vec4(
+        tslMix(bgColor, simpleColor.rgb, hasGeometryS),
         float(1),
       )
-      // ── END SELECTION OUTLINE ──────────────────────────────────────────────────
 
-      const pp = new THREE.PostProcessing(renderer)
-      pp.outputNode = finalOutput.renderOutput()
+      const maskPassS = pass(maskSceneRef.current, camera)
+      const edgeS = buildEdgeNode(maskPassS.getTextureNode(), resUniform)
 
-      if (disposed) { pp.dispose(); return }
-      ppRef.current = pp
+      const simplePP = new THREE.PostProcessing(renderer)
+      simplePP.outputNode = vec4(
+        simpleWithBg.rgb.add(vec3(OUTLINE.r, OUTLINE.g, OUTLINE.b).mul(edgeS)),
+        float(1),
+      ).renderOutput()
+
+      if (disposed) { renderPP.dispose(); simplePP.dispose(); return }
+      renderPPRef.current = renderPP
+      simplePPRef.current = simplePP
     } catch (e) {
-      console.warn('[renderer] SSGI pipeline setup failed, falling back to default render:', e)
+      console.warn('[renderer] Pipeline setup failed, falling back to default render:', e)
       failedRef.current = true
     }
 
     return () => {
       disposed = true
-      if (ppRef.current) { ppRef.current.dispose(); ppRef.current = null }
+      renderPPRef.current?.dispose(); renderPPRef.current = null
+      simplePPRef.current?.dispose(); simplePPRef.current = null
     }
   }, [renderer, scene, camera]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync mask mesh matrices before each frame renders.
-  // Set m.matrix (not m.matrixWorld) so Three.js's updateMatrixWorld() correctly
-  // recomputes matrixWorld = maskScene.matrixWorld(identity) × m.matrix = src.matrixWorld.
+  // Copy source world matrices into mask meshes every frame (before the render).
+  // Setting m.matrix (not m.matrixWorld) lets Three.js's updateMatrixWorld() inside
+  // pp.render() compute the correct result: maskScene(identity) × m.matrix = src.matrixWorld.
   useFrame(() => {
     maskMeshes.current.forEach(m => {
       const src = m.userData.source
@@ -192,17 +210,19 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
   }, 0)
 
   useFrame(() => {
-    if (mode !== 'rendered' || failedRef.current || !ppRef.current) {
+    const pp = mode === 'rendered' ? renderPPRef.current : simplePPRef.current
+    if (failedRef.current || !pp) {
       renderer.render(scene, camera)
       return
     }
     try {
       renderer.setClearAlpha?.(0)
-      ppRef.current.render()
+      pp.render()
     } catch (e) {
-      console.warn('[renderer] SSGI render error, disabling pipeline:', e)
+      console.warn('[renderer] Render error, disabling pipeline:', e)
       failedRef.current = true
-      if (ppRef.current) { ppRef.current.dispose(); ppRef.current = null }
+      renderPPRef.current?.dispose(); renderPPRef.current = null
+      simplePPRef.current?.dispose(); simplePPRef.current = null
     }
   }, 1)
 
