@@ -13,20 +13,22 @@ export default async function handler(req, res) {
     if (action === 'delete') {
       if (!url || !userId) return res.status(400).json({ error: 'Missing url or userId' })
 
-      const rows = await sql`SELECT id, size FROM blobs WHERE url = ${url} AND user_id = ${userId}`
-      if (rows.length === 0) return res.status(200).json({ success: true })
-
+      // Always attempt storage deletion — blob may exist even if not tracked in DB
       try {
         await del(url, { token: process.env.BLOB_READ_WRITE_TOKEN })
       } catch (e) {
         console.warn('[upload-complete/delete] Blob delete failed:', e.message)
       }
 
-      const size = Number(rows[0].size)
-      if (size > 0) {
-        await sql`UPDATE users SET storage_used = GREATEST(0, storage_used - ${size}) WHERE id = ${userId}`
+      // Clean up DB record and quota only if tracked
+      const rows = await sql`SELECT id, size FROM blobs WHERE url = ${url} AND user_id = ${userId}`
+      if (rows.length > 0) {
+        const size = Number(rows[0].size)
+        if (size > 0) {
+          await sql`UPDATE users SET storage_used = GREATEST(0, storage_used - ${size}) WHERE id = ${userId}`
+        }
+        await sql`DELETE FROM blobs WHERE url = ${url} AND user_id = ${userId}`
       }
-      await sql`DELETE FROM blobs WHERE url = ${url} AND user_id = ${userId}`
       return res.status(200).json({ success: true })
     }
 
