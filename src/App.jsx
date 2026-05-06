@@ -108,6 +108,8 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   const origPositionsRef = useRef(null) // original mesh positions/rotations from file
 
   const [arrowBase, setArrowBase] = useState(0)
+  const [rotDrafts, setRotDrafts] = useState({ x: '0', y: '0', z: '0' })
+  const rotFocused = useRef({ x: false, y: false, z: false })
 
   useEffect(() => {
     if (groupRef.current) {
@@ -115,6 +117,15 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       setArrowBase(box.min.y - groupRef.current.position.y)
     }
   }, [clonedScene])
+
+  useEffect(() => {
+    if (Object.values(rotFocused.current).some(Boolean)) return
+    setRotDrafts({
+      x: String(Math.round((rotation?.x ?? 0) * 10) / 10),
+      y: String(Math.round((rotation?.y ?? 0) * 10) / 10),
+      z: String(Math.round((rotation?.z ?? 0) * 10) / 10),
+    })
+  }, [rotation?.x, rotation?.y, rotation?.z]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Track the selected sub-mesh imperatively
   useEffect(() => {
@@ -314,7 +325,12 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
-          const mesh = selectedMeshRef.current
+          let mesh = null
+          if (selectedPart !== 'all' && clonedScene) {
+            const ms = []
+            clonedScene.traverse(c => { if (c.isMesh && !c.userData.isOutline) ms.push(c) })
+            mesh = ms[parseInt(selectedPart)] ?? null
+          }
           if (mesh) {
             const newY = mesh.position.y + delta
             mesh.position.y = newY
@@ -348,52 +364,39 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
             transform: 'translateX(14px)',
             userSelect: 'none',
           }}>
-            <div style={{ color: '#666', fontSize: '10px', letterSpacing: '0.08em', marginBottom: '6px', paddingRight: '8px' }}>
-              {selectedPart !== 'all' ? `ROTATION · PART ${parseInt(selectedPart) + 1}` : 'ROTATION'}
-            </div>
+            <div style={{ color: '#666', fontSize: '10px', letterSpacing: '0.08em', marginBottom: '6px', paddingRight: '8px' }}>ROTATION</div>
             {[
               { axis: 'x', color: '#e05252' },
               { axis: 'y', color: '#52b352' },
               { axis: 'z', color: '#5285e0' },
-            ].map(({ axis, color }) => {
-              const partRot = partTransforms?.[selectedPart]?.rotation
-              const value = selectedPart !== 'all'
-                ? (partRot?.[axis] ?? 0)
-                : (rotation?.[axis] ?? 0)
-              return (
-                <div key={axis} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', gap: '6px' }}>
-                  <span style={{ color, width: '12px', fontWeight: 'bold', fontSize: '11px', flexShrink: 0 }}>{axis.toUpperCase()}</span>
-                  <input
-                    type="number"
-                    step="1"
-                    value={Math.round(value * 10) / 10}
-                    onChange={e => {
-                      const deg = parseFloat(e.target.value) || 0
-                      if (selectedPart !== 'all') {
-                        const mesh = selectedMeshRef.current
-                        if (mesh) {
-                          mesh.rotation[axis] = THREE.MathUtils.degToRad(deg)
-                          const existing = partTransforms?.[selectedPart] ?? {}
-                          onUpdatePartTransform?.(selectedPart, {
-                            ...existing,
-                            rotation: { ...(existing.rotation ?? {}), [axis]: deg },
-                          })
-                        }
-                      } else {
-                        onUpdateRotation(axis, deg)
-                      }
-                    }}
-                    onPointerDown={e => e.stopPropagation()}
-                    style={{
-                      flex: 1, background: '#1a1a1a', border: '1px solid #3a3a3a',
-                      borderRadius: '3px', color: '#ddd', padding: '3px 6px',
-                      fontSize: '12px', outline: 'none', width: 0,
-                    }}
-                  />
-                  <span style={{ color: '#666', fontSize: '11px', paddingRight: '8px' }}>°</span>
-                </div>
-              )
-            })}
+            ].map(({ axis, color }) => (
+              <div key={axis} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', gap: '6px' }}>
+                <span style={{ color, width: '12px', fontWeight: 'bold', fontSize: '11px', flexShrink: 0 }}>{axis.toUpperCase()}</span>
+                <input
+                  type="number"
+                  step="1"
+                  value={rotDrafts[axis]}
+                  onChange={e => {
+                    setRotDrafts(prev => ({ ...prev, [axis]: e.target.value }))
+                    const deg = parseFloat(e.target.value)
+                    if (isFinite(deg)) onUpdateRotation(axis, deg)
+                  }}
+                  onFocus={() => { rotFocused.current[axis] = true }}
+                  onBlur={() => {
+                    rotFocused.current[axis] = false
+                    const deg = parseFloat(rotDrafts[axis])
+                    setRotDrafts(prev => ({ ...prev, [axis]: String(Math.round((isFinite(deg) ? deg : (rotation?.[axis] ?? 0)) * 10) / 10) }))
+                  }}
+                  onPointerDown={e => e.stopPropagation()}
+                  style={{
+                    flex: 1, background: '#1a1a1a', border: '1px solid #3a3a3a',
+                    borderRadius: '3px', color: '#ddd', padding: '3px 6px',
+                    fontSize: '12px', outline: 'none', width: 0,
+                  }}
+                />
+                <span style={{ color: '#666', fontSize: '11px', paddingRight: '8px' }}>°</span>
+              </div>
+            ))}
           </div>
         </Html>
       )}
@@ -1097,34 +1100,21 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
           {!item ? noSel('Select an object') : <>
             {partChip}
             <XYZRow
-              label={isPartMode ? 'POSITION (OFFSET)' : 'POSITION'}
-              values={isPartMode ? partPos : objPos}
+              label="POSITION"
+              values={objPos}
               step={0.01}
               onChange={(i, v) => {
-                if (isPartMode) {
-                  const p = [...(Array.isArray(partPos) ? partPos : [0, 0, 0])]
-                  p[i] = v
-                  onUpdatePartTransform(selectedId, selectedPart, { position: p })
-                } else {
-                  const p = [...(Array.isArray(objPos) ? objPos : [0, 0, 0])]
-                  p[i] = v
-                  onUpdatePosition(selectedId, p)
-                }
+                const p = [...(Array.isArray(objPos) ? objPos : [0, 0, 0])]
+                p[i] = v
+                onUpdatePosition(selectedId, p)
               }}
             />
             <XYZRow
               label="ROTATION"
-              values={isPartMode
-                ? [partRot.x ?? 0, partRot.y ?? 0, partRot.z ?? 0]
-                : [objRot.x ?? 0, objRot.y ?? 0, objRot.z ?? 0]}
+              values={[objRot.x ?? 0, objRot.y ?? 0, objRot.z ?? 0]}
               step={1}
               onChange={(i, v) => {
-                const axes = ['x', 'y', 'z']
-                if (isPartMode) {
-                  onUpdatePartTransform(selectedId, selectedPart, { rotation: { ...partRot, [axes[i]]: v } })
-                } else {
-                  onUpdateRotation(selectedId, axes[i], v)
-                }
+                onUpdateRotation(selectedId, ['x', 'y', 'z'][i], v)
               }}
             />
             {divider}
@@ -1219,7 +1209,6 @@ function App() {
 
   const deleteSelected = () => {
     const item = placedFurniture.find(i => i.instanceId === selectedId)
-    saveHistory(placedFurniture)
     setPlacedFurniture(placedFurniture.filter(i => i.instanceId !== selectedId))
     setSelectedId(null)
 
