@@ -1197,10 +1197,10 @@ function App() {
         if (!isShared) toDelete.add(item.material.textureUrl)
       }
       toDelete.forEach(url => {
-        fetch('/api/blob-delete', {
+        fetch('/api/upload-complete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, userId }),
+          body: JSON.stringify({ action: 'delete', url, userId }),
         }).catch(() => {})
       })
     }
