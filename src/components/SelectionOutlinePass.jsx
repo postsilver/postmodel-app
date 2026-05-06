@@ -117,9 +117,12 @@ export default function SelectionOutlinePass({ selectedScene }) {
     renderer.setRenderTarget(maskTarget)
     renderer.render(maskScene, maskCamera)
 
-    // 2. Composite edge overlay on top of existing frame
+    // 2. Composite edge overlay on top of existing frame without clearing
     renderer.setRenderTarget(null)
+    const savedAutoClear = renderer.autoClear
+    renderer.autoClear = false
     quadMesh.render(renderer)
+    renderer.autoClear = savedAutoClear
   }, 2)
 
   return null
