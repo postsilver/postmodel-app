@@ -243,8 +243,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   }, [isSelected, clonedScene, selectedPart]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const bind = useDrag(({ active, first, last, event }) => {
-    // When Z-move is active we always move the parent group, even if a child part is selected
-    const partMesh = isSelected && !zMoveActive ? selectedMeshRef.current : null
+    const partMesh = isSelected ? selectedMeshRef.current : null
     if (first) {
       onDragStart()
       onSelect()
@@ -869,6 +868,15 @@ const INP = {
 }
 
 function XYZRow({ label, values, onChange, step = 0.01 }) {
+  const fmt = v => String(Math.round((v ?? 0) * 1000) / 1000)
+  const [drafts, setDrafts] = useState(() => values.map(fmt))
+  const focused = useRef([false, false, false])
+
+  useEffect(() => {
+    if (focused.current.some(Boolean)) return
+    setDrafts(values.map(fmt))
+  }, [values[0], values[1], values[2]]) // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div style={{ marginBottom: '12px' }}>
       <div style={{ fontSize: '10px', color: '#555', marginBottom: '4px', letterSpacing: '0.07em' }}>{label}</div>
@@ -877,14 +885,61 @@ function XYZRow({ label, values, onChange, step = 0.01 }) {
           <div key={axis} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px' }}>
             <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>{axis}</span>
             <input type="number" step={step}
-              value={Math.round((values[i] ?? 0) * 1000) / 1000}
-              onChange={e => onChange(i, parseFloat(e.target.value) || 0)}
+              value={drafts[i]}
+              onChange={e => {
+                const next = [...drafts]; next[i] = e.target.value; setDrafts(next)
+                const v = parseFloat(e.target.value)
+                if (isFinite(v)) onChange(i, v)
+              }}
+              onFocus={() => { focused.current[i] = true }}
+              onBlur={() => {
+                focused.current[i] = false
+                const v = parseFloat(drafts[i])
+                setDrafts(prev => { const n = [...prev]; n[i] = fmt(isFinite(v) ? v : (values[i] ?? 0)); return n })
+              }}
               onPointerDown={e => e.stopPropagation()}
               style={INP}
             />
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function ScaleRow({ objScale, scaleLocked, onUpdateScale, selectedId }) {
+  const fmt = v => String(Math.round((v ?? 1) * 1000) / 1000)
+  const [drafts, setDrafts] = useState(() => ({ x: fmt(objScale.x), y: fmt(objScale.y), z: fmt(objScale.z) }))
+  const focused = useRef({ x: false, y: false, z: false })
+
+  useEffect(() => {
+    if (Object.values(focused.current).some(Boolean)) return
+    setDrafts({ x: fmt(objScale.x), y: fmt(objScale.y), z: fmt(objScale.z) })
+  }, [objScale.x, objScale.y, objScale.z, selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
+      {['x', 'y', 'z'].map((axis, i) => (
+        <div key={axis} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px' }}>
+          <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>{axis.toUpperCase()}</span>
+          <input type="number" step="0.01" min="0.001"
+            value={drafts[axis]}
+            onChange={e => {
+              setDrafts(prev => ({ ...prev, [axis]: e.target.value }))
+              const v = parseFloat(e.target.value)
+              if (isFinite(v) && v > 0) onUpdateScale(selectedId, scaleLocked ? { x: v, y: v, z: v } : { ...objScale, [axis]: v })
+            }}
+            onFocus={() => { focused.current[axis] = true }}
+            onBlur={() => {
+              focused.current[axis] = false
+              const v = parseFloat(drafts[axis])
+              setDrafts(prev => ({ ...prev, [axis]: fmt(isFinite(v) && v > 0 ? v : (objScale[axis] ?? 1)) }))
+            }}
+            onPointerDown={e => e.stopPropagation()}
+            style={INP}
+          />
+        </div>
+      ))}
     </div>
   )
 }
@@ -1080,23 +1135,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                 {scaleLocked ? '🔗' : '⛓️'}
               </button>
             </div>
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
-              {['x', 'y', 'z'].map((axis, i) => (
-                <div key={axis} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>{axis.toUpperCase()}</span>
-                  <input type="number" step="0.01" min="0.001"
-                    value={Math.round((objScale[axis] ?? 1) * 1000) / 1000}
-                    onChange={e => {
-                      const v = parseFloat(e.target.value)
-                      if (!isFinite(v) || v <= 0) return
-                      onUpdateScale(selectedId, scaleLocked ? { x: v, y: v, z: v } : { ...objScale, [axis]: v })
-                    }}
-                    onPointerDown={e => e.stopPropagation()}
-                    style={INP}
-                  />
-                </div>
-              ))}
-            </div>
+            <ScaleRow objScale={objScale} scaleLocked={scaleLocked} onUpdateScale={onUpdateScale} selectedId={selectedId} />
           </>}
         </>}
 
