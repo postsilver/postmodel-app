@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Html } from '@react-three/drei'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three/webgpu'
+import { positionLocal, normalLocal } from 'three/tsl'
 import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
@@ -227,6 +228,27 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       })
     }
   }, [clonedScene, JSON.stringify(materialSettings)]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── SELECTION OUTLINE ── remove this entire useEffect block to disable
+  useEffect(() => {
+    if (!clonedScene) return
+    const toRemove = []
+    clonedScene.traverse(child => { if (child.userData.isOutline) toRemove.push(child) })
+    toRemove.forEach(child => { child.parent?.remove(child); child.material?.dispose() })
+    if (!isSelected) return
+    const added = []
+    clonedScene.traverse(child => {
+      if (!child.isMesh || child.userData.isOutline) return
+      const mat = new THREE.MeshBasicNodeMaterial({ color: '#ffffff', side: THREE.BackSide })
+      mat.positionNode = positionLocal.add(normalLocal.normalize().mul(0.025))
+      const outline = new THREE.Mesh(child.geometry, mat)
+      outline.userData.isOutline = true
+      child.add(outline)
+      added.push({ parent: child, mesh: outline })
+    })
+    return () => { added.forEach(({ parent, mesh }) => { parent.remove(mesh); mesh.material?.dispose() }) }
+  }, [clonedScene, isSelected])
+  // ── END SELECTION OUTLINE ──
 
   const bind = useDrag(({ active, first, last, event }) => {
     const partMesh = isSelected ? selectedMeshRef.current : null
