@@ -25,7 +25,7 @@ import {
 import { ssgi } from 'three/examples/jsm/tsl/display/SSGINode.js'
 import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 
-const OUTLINE = { r: 0.9, g: 0.35, b: 0.0 }
+const OUTLINE = { r: 1.4, g: 0.45, b: 0.0 } // HDR linear; tone-maps to vivid orange
 
 // Build a Sobel edge-detection node over a mask texture node.
 // resUniform is a shared vec2 uniform(width, height) — same ref in both pipelines.
@@ -156,7 +156,7 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
 
       const renderPP = new THREE.PostProcessing(renderer)
       renderPP.outputNode = vec4(
-        ssgiWithBg.rgb.add(vec3(OUTLINE.r, OUTLINE.g, OUTLINE.b).mul(edgeR)),
+        tslMix(ssgiWithBg.rgb, vec3(OUTLINE.r, OUTLINE.g, OUTLINE.b), edgeR),
         float(1),
       ).renderOutput()
 
@@ -176,7 +176,7 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
 
       const simplePP = new THREE.PostProcessing(renderer)
       simplePP.outputNode = vec4(
-        simpleWithBg.rgb.add(vec3(OUTLINE.r, OUTLINE.g, OUTLINE.b).mul(edgeS)),
+        tslMix(simpleWithBg.rgb, vec3(OUTLINE.r, OUTLINE.g, OUTLINE.b), edgeS),
         float(1),
       ).renderOutput()
 
