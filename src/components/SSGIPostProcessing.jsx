@@ -177,13 +177,16 @@ export default function SSGIPostProcessing({ mode = 'rendered', selectedScene = 
     }
   }, [renderer, scene, camera]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync mask mesh world matrices before each frame renders
+  // Sync mask mesh matrices before each frame renders.
+  // Set m.matrix (not m.matrixWorld) so Three.js's updateMatrixWorld() correctly
+  // recomputes matrixWorld = maskScene.matrixWorld(identity) × m.matrix = src.matrixWorld.
   useFrame(() => {
     maskMeshes.current.forEach(m => {
       const src = m.userData.source
       if (src) {
         src.updateWorldMatrix(true, false)
-        m.matrixWorld.copy(src.matrixWorld)
+        m.matrix.copy(src.matrixWorld)
+        m.matrixWorldNeedsUpdate = true
       }
     })
   }, 0)
