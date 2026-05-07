@@ -807,7 +807,7 @@ export function ViewportMode({ mode, placedFurniture }) {
   return null
 }
 
-function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh, selectedPart, onPartSelect, isGuest }) {
+function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, meshLists, onSaveProject, currentProjectName, onGoToDashboard, onUploadMesh, selectedPart, onPartSelect, isGuest, onBlobsProtected }) {
   const [showEmbed, setShowEmbed] = useState(false)
   const [collapsedItems, setCollapsedItems] = useState(new Set())
   const [baseUrl, setBaseUrl] = useState('')
@@ -849,6 +849,7 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
       const { id } = await res.json()
       await navigator.clipboard.writeText(`${window.location.origin}/view/${id}`)
       setShareMsg('Link copied!')
+      onBlobsProtected?.(placedFurniture)
     } catch {
       setShareMsg('Failed — try again')
     } finally {
@@ -1381,6 +1382,7 @@ function App() {
   const [currentProjectName, setCurrentProjectName] = useState(null)
   const [saveToast, setSaveToast] = useState(null)
   const uploadInputRef = useRef()
+  const sessionBlobsRef = useRef(new Set()) // blob URLs uploaded this session, not yet saved/shared
   const history = useRef([])
   const canvasPointerDown = useRef(null)
 
@@ -1409,6 +1411,22 @@ function App() {
     if (!selectedId) { setRotPanelActive(false); setSelectedPart('all'); setSelectedScene(null) }
     // Don't auto-reset selectedPart on object switch — sidebar click handlers set it explicitly
   }, [selectedId])
+
+  // On page close/refresh without saving: immediately delete any blobs uploaded this session
+  // that were never linked to a saved project. Falls back to 72h/80h cron if beacon fails.
+  useEffect(() => {
+    const onHide = (e) => {
+      if (e.persisted) return // going into BFCache — user may navigate back
+      const urls = [...sessionBlobsRef.current].filter(u => u?.startsWith('https://'))
+      if (!urls.length) return
+      navigator.sendBeacon(
+        '/api/cleanup-session',
+        new Blob([JSON.stringify({ urls, userId: userId || null })], { type: 'application/json' })
+      )
+    }
+    window.addEventListener('pagehide', onHide)
+    return () => window.removeEventListener('pagehide', onHide)
+  }, [userId])
 
   // Restore scene from URL hash when loaded as an embed
   useEffect(() => {
@@ -1551,6 +1569,7 @@ const updateScale = (instanceId, newScale) => {
         clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }),
       })
       const url = blob.url
+      sessionBlobsRef.current.add(url) // track for session cleanup on page close
 
       // Track blob for all users: authenticated users get quota accounting,
       // guests get a 72h auto-expiry so the cron job cleans them up.
@@ -1633,6 +1652,7 @@ const updateScale = (instanceId, newScale) => {
       if (!res.ok) throw new Error(data.error)
       setCurrentProjectId(data.projectId)
       setCurrentProjectName(name)
+      sessionBlobsRef.current.clear() // blobs are now part of a saved project
       setSaveToast('Project saved')
       setTimeout(() => setSaveToast(null), 3000)
     } catch (err) {
@@ -1695,6 +1715,12 @@ const updateScale = (instanceId, newScale) => {
           selectedPart={selectedPart}
           onPartSelect={setSelectedPart}
           isGuest={isGuest}
+          onBlobsProtected={(furniture) => {
+            furniture.forEach(item => {
+              if (item.file) sessionBlobsRef.current.delete(item.file)
+              if (item.sourceUrl) sessionBlobsRef.current.delete(item.sourceUrl)
+            })
+          }}
         />
       )}
 
