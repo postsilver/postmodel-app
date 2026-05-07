@@ -709,7 +709,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, onSelectScene }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, onSelectScene, onPartNativeMaterial }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -761,7 +761,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           selectedPart: selectedId === item.instanceId ? selectedPart : 'all',
           orbitRef,
           onSelectScene,
-          onPartNativeMaterial: selectedId === item.instanceId ? setNativeMat : undefined,
+          onPartNativeMaterial: selectedId === item.instanceId ? onPartNativeMaterial : undefined,
         }
         return (
           <Suspense key={item.instanceId} fallback={<LoadingMarker position={item.position} />}>
@@ -1917,6 +1917,7 @@ const updateScale = (instanceId, newScale) => {
               onUpdatePartTransform={updatePartTransform}
               selectedPart={selectedPart}
               onSelectScene={setSelectedScene}
+              onPartNativeMaterial={setNativeMat}
             />
           </Suspense>
         </Canvas>
