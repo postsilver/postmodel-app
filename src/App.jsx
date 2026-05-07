@@ -79,22 +79,15 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
   return (
     <group position={[0, baseY, 0]}>
       <group scale={[counterScale, counterScale, counterScale]}>
-        {/* Blue axis line — always on top, no depth interaction */}
-        <mesh renderOrder={999}>
-          <cylinderGeometry args={[0.007, 0.007, 12, 8]} />
-          <meshBasicMaterial color="#4d8cf5" depthTest={false} depthWrite={false} />
-        </mesh>
-        {/* Wide invisible hit area — no lighting, shadows, or depth effects */}
+        {/* Blue axis line — always on top, pointer events directly on it */}
         <mesh
           renderOrder={999}
-          castShadow={false}
-          receiveShadow={false}
           onPointerDown={handleDown}
           onPointerMove={handleMove}
           onPointerUp={handleUp}
         >
-          <cylinderGeometry args={[0.12, 0.12, 12, 8]} />
-          <meshBasicMaterial transparent opacity={0} depthTest={false} depthWrite={false} />
+          <cylinderGeometry args={[0.022, 0.022, 12, 8]} />
+          <meshBasicMaterial color="#4d8cf5" depthTest={false} depthWrite={false} />
         </mesh>
       </group>
     </group>
