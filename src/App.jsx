@@ -51,6 +51,16 @@ function decodeScene(encoded) {
 }
 
 
+function textureThumbnail(texture) {
+  if (!texture?.image) return null
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = 48; canvas.height = 48
+    canvas.getContext('2d').drawImage(texture.image, 0, 0, 48, 48)
+    return canvas.toDataURL('image/jpeg', 0.8)
+  } catch { return null }
+}
+
 function LoadingMarker({ position }) {
   useEffect(() => {
     if (document.getElementById('lm-spin-style')) return
@@ -123,7 +133,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef, onSelectScene }) {
+function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef, onSelectScene, onPartNativeMaterial }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -316,6 +326,34 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     onSelectScene?.(clonedScene)
     return () => onSelectScene?.(null)
   }, [isSelected, clonedScene, selectedPart]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Extract native material info from the selected child mesh and report it upward
+  useEffect(() => {
+    if (!isSelected || !onPartNativeMaterial) return
+    if (selectedPart === 'all' || !clonedScene) { onPartNativeMaterial(null); return }
+    const meshes = []
+    clonedScene.traverse(c => { if (c.isMesh && !c.userData.isOutline) meshes.push(c) })
+    const mesh = meshes[parseInt(selectedPart)]
+    if (!mesh) { onPartNativeMaterial(null); return }
+    const src = origMaterialsRef.current?.[parseInt(selectedPart)] ?? mesh.material
+    const mat = Array.isArray(src) ? src[0] : src
+    if (!mat) { onPartNativeMaterial(null); return }
+    const slots = [
+      { label: 'BASE COLOR',  tex: mat.map },
+      { label: 'ROUGHNESS',   tex: mat.roughnessMap },
+      { label: 'NORMAL',      tex: mat.normalMap },
+      { label: 'METALNESS',   tex: mat.metalnessMap },
+      { label: 'EMISSIVE',    tex: mat.emissiveMap },
+      { label: 'AO',          tex: mat.aoMap },
+    ].filter(s => s.tex).map(s => ({ label: s.label, thumbnail: textureThumbnail(s.tex) }))
+    onPartNativeMaterial({
+      name: mat.name || '',
+      slots,
+      color: mat.color ? '#' + mat.color.getHexString() : null,
+      roughness: mat.roughness ?? null,
+      metalness: mat.metalness ?? null,
+    })
+  }, [isSelected, selectedPart, clonedScene]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleZDrag = useCallback((delta) => {
     let mesh = null
@@ -708,6 +746,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           selectedPart: selectedId === item.instanceId ? selectedPart : 'all',
           orbitRef,
           onSelectScene,
+          onPartNativeMaterial: selectedId === item.instanceId ? setNativeMat : undefined,
         }
         return (
           <Suspense key={item.instanceId} fallback={<LoadingMarker position={item.position} />}>
@@ -1052,7 +1091,7 @@ function ScaleRow({ objScale, scaleLocked, onUpdateScale, selectedId }) {
   )
 }
 
-function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId }) {
+function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId, nativeMat }) {
   const [tab, setTab] = useState('material')
   const [isUploadingTex, setIsUploadingTex] = useState(false)
   const texInputRef = useRef()
@@ -1082,6 +1121,22 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
       onUpdateMaterial(selectedId, { ...mat, ...changes })
     }
   }
+
+  const handleResetPart = () => {
+    if (!item || !isPartMode) return
+    const newMM = { ...(mat.meshMaterials ?? {}) }
+    delete newMM[partIdx]
+    onUpdateMaterial(selectedId, { ...mat, meshMaterials: newMM })
+  }
+
+  const hasPartOverride = isPartMode && !!(mat.meshMaterials?.[partIdx])
+  // Use native material values as display defaults when no override is set
+  const displayMat = isPartMode && nativeMat && !hasPartOverride ? {
+    ...meshMat,
+    color: nativeMat.color ?? meshMat.color,
+    roughness: nativeMat.roughness ?? meshMat.roughness,
+    metalness: nativeMat.metalness ?? meshMat.metalness,
+  } : meshMat
 
   const handleTexUpload = async (file) => {
     if (!file || !item) return
@@ -1156,46 +1211,93 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
         {tab === 'material' && <>
           {!item ? noSel('Select an object') : <>
             {partChip}
+
+            {/* Native texture slots from the loaded file */}
+            {isPartMode && nativeMat?.slots?.length > 0 && <>
+              {lbl('TEXTURES')}
+              <div style={{ marginBottom: '10px' }}>
+                {nativeMat.slots.map(slot => (
+                  <div key={slot.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    {slot.thumbnail
+                      ? <img src={slot.thumbnail} style={{ width: 38, height: 38, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid #2e2e2e' }} />
+                      : <div style={{ width: 38, height: 38, background: '#222', borderRadius: 3, flexShrink: 0, border: '1px solid #2e2e2e' }} />
+                    }
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '9px', color: '#555', letterSpacing: '0.07em' }}>{slot.label}</div>
+                    </div>
+                    {slot.label === 'BASE COLOR' && (
+                      <>
+                        <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                          onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
+                        />
+                        <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
+                          style={{ padding: '3px 7px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#777', cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}>
+                          {isUploadingTex ? '…' : '↑'}
+                        </button>
+                        {meshMat.textureUrl && (
+                          <button onClick={() => handleMatChange({ textureUrl: null })}
+                            style={{ padding: '3px 6px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#555', cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}>✕</button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {divider}
+            </>}
+
+            {/* Fallback texture upload when no native textures */}
+            {!(isPartMode && nativeMat?.slots?.length > 0) && <>
+              {lbl('TEXTURE')}
+              <input type="text" placeholder="Paste image URL…"
+                value={displayMat.textureUrl || ''}
+                onChange={e => handleMatChange({ textureUrl: e.target.value || null })}
+                style={{ ...INP, marginBottom: '6px' }}
+              />
+              <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
+              />
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+                <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
+                  style={{ flex: 1, padding: '5px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#aaa', cursor: 'pointer', fontSize: '11px' }}>
+                  {isUploadingTex ? 'Uploading…' : '↑ Upload image'}
+                </button>
+                {displayMat.textureUrl && (
+                  <button onClick={() => handleMatChange({ textureUrl: null })}
+                    style={{ padding: '5px 10px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#666', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+                )}
+              </div>
+              {displayMat.textureUrl && <>
+                {lbl('TEXTURE SCALE')}
+                <input type="number" step="0.1" min="0.01"
+                  value={displayMat.textureScale ?? 1}
+                  onChange={e => handleMatChange({ textureScale: parseFloat(e.target.value) || 1 })}
+                  style={{ ...INP, marginBottom: '12px' }}
+                />
+              </>}
+              {divider}
+            </>}
+
             {lbl('COLOR')}
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '12px' }}>
-              <input type="color" value={meshMat.color || '#cccccc'}
+              <input type="color" value={displayMat.color || '#cccccc'}
                 onChange={e => handleMatChange({ color: e.target.value })}
                 style={{ width: '32px', height: '26px', padding: '1px 2px', background: 'none', border: '1px solid #333', borderRadius: '3px', cursor: 'pointer', flexShrink: 0 }}
               />
-              <input type="text" value={meshMat.color || '#cccccc'}
+              <input type="text" value={displayMat.color || '#cccccc'}
                 onChange={e => handleMatChange({ color: e.target.value })}
                 style={{ ...INP, flex: 1 }}
               />
             </div>
-            {sliderRow('ROUGHNESS', meshMat.roughness ?? 0.5, 0, 1, v => handleMatChange({ roughness: v }))}
-            {sliderRow('METALNESS', meshMat.metalness ?? 0, 0, 1, v => handleMatChange({ metalness: v }))}
-            {divider}
-            {lbl('TEXTURE')}
-            <input type="text" placeholder="Paste image URL…"
-              value={meshMat.textureUrl || ''}
-              onChange={e => handleMatChange({ textureUrl: e.target.value || null })}
-              style={{ ...INP, marginBottom: '6px' }}
-            />
-            <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-              onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
-            />
-            <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-              <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
-                style={{ flex: 1, padding: '5px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#aaa', cursor: 'pointer', fontSize: '11px' }}>
-                {isUploadingTex ? 'Uploading…' : '↑ Upload image'}
+            {sliderRow('ROUGHNESS', displayMat.roughness ?? 0.5, 0, 1, v => handleMatChange({ roughness: v }))}
+            {sliderRow('METALNESS', displayMat.metalness ?? 0, 0, 1, v => handleMatChange({ metalness: v }))}
+
+            {hasPartOverride && <>
+              {divider}
+              <button onClick={handleResetPart}
+                style={{ width: '100%', padding: '6px', background: '#1e1e1e', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#666', cursor: 'pointer', fontSize: '10px', letterSpacing: '0.07em' }}>
+                RESET TO ORIGINAL
               </button>
-              {meshMat.textureUrl && (
-                <button onClick={() => handleMatChange({ textureUrl: null })}
-                  style={{ padding: '5px 10px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#666', cursor: 'pointer', fontSize: '11px' }}>✕</button>
-              )}
-            </div>
-            {meshMat.textureUrl && <>
-              {lbl('TEXTURE SCALE')}
-              <input type="number" step="0.1" min="0.01"
-                value={meshMat.textureScale ?? 1}
-                onChange={e => handleMatChange({ textureScale: parseFloat(e.target.value) || 1 })}
-                style={{ ...INP, marginBottom: '12px' }}
-              />
             </>}
           </>}
         </>}
@@ -1261,6 +1363,7 @@ function App() {
   const [zMoveActive, setZMoveActive] = useState(false)
   const [rotPanelActive, setRotPanelActive] = useState(false)
   const [selectedPart, setSelectedPart] = useState('all')
+  const [nativeMat, setNativeMat] = useState(null)
   const [envIntensity, setEnvIntensity] = useState(0.09)
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [renderMode, setRenderMode] = useState('rendered')
@@ -1609,6 +1712,7 @@ const updateScale = (instanceId, newScale) => {
           ambientIntensity={pointLightIntensity}
           onAmbientIntensity={setPointLightIntensity}
           userId={userId}
+          nativeMat={nativeMat}
         />
       )}
 
