@@ -129,6 +129,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   const offset = useRef([0, 0])
   const selectedMeshRef = useRef(null)
   const origPositionsRef = useRef(null) // original mesh positions/rotations from file
+  const origMaterialsRef = useRef(null) // original materials from the loaded file
 
   const [arrowBase, setArrowBase] = useState(0)
   const [rotDrafts, setRotDrafts] = useState({ x: '0', y: '0', z: '0' })
@@ -182,6 +183,18 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       }
     })
     origPositionsRef.current = orig
+  }, [clonedScene])
+
+  // Capture original materials once when scene loads so we can restore them
+  // when the user hasn't set any override (e.g. GLB with embedded textures)
+  useEffect(() => {
+    if (!clonedScene) return
+    const orig = {}
+    let i = 0
+    clonedScene.traverse(child => {
+      if (child.isMesh && !child.userData.isOutline) orig[i++] = child.material
+    })
+    origMaterialsRef.current = orig
   }, [clonedScene])
 
   // Apply saved per-part transforms — resets to originals first so undo works correctly
@@ -239,38 +252,55 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   }, [clonedScene, onMeshListUpdate])
 
   useEffect(() => {
-    if (clonedScene && materialSettings) {
-      let meshIndex = 0
-      clonedScene.traverse((child) => {
-        if (child.isMesh && !child.userData.isOutline) {
-          const meshMaterials = materialSettings.meshMaterials || {}
-          const settings = meshMaterials[meshIndex] || materialSettings
-          let texture = null
-          if (settings.textureUrl) {
-            const loader = new THREE.TextureLoader()
-            texture = loader.load(settings.textureUrl)
-            texture.colorSpace = THREE.SRGBColorSpace
-            texture.wrapS = THREE.RepeatWrapping
-            texture.wrapT = THREE.RepeatWrapping
-            texture.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
-          }
-          if (child.material) {
-            const mats = Array.isArray(child.material) ? child.material : [child.material]
-            mats.forEach(mat => {
+    if (!clonedScene || !materialSettings) return
+    let meshIndex = 0
+    clonedScene.traverse((child) => {
+      if (child.isMesh && !child.userData.isOutline) {
+        const meshMaterials = materialSettings.meshMaterials || {}
+        const perMesh = meshMaterials[meshIndex]
+        const settings = perMesh || materialSettings
+
+        // No user override if settings match defaults and no per-mesh entry —
+        // restore the original GLB/file material (preserves embedded textures)
+        const hasOverride = settings.textureUrl ||
+          (settings.color && settings.color !== DEFAULT_MATERIAL.color) ||
+          (settings.roughness !== undefined && settings.roughness !== DEFAULT_MATERIAL.roughness) ||
+          (settings.metalness !== undefined && settings.metalness !== DEFAULT_MATERIAL.metalness) ||
+          !!perMesh
+        if (!hasOverride) {
+          const orig = origMaterialsRef.current?.[meshIndex]
+          if (orig) child.material = orig
+          meshIndex++
+          return
+        }
+
+        let texture = null
+        if (settings.textureUrl) {
+          const loader = new THREE.TextureLoader()
+          texture = loader.load(settings.textureUrl)
+          texture.colorSpace = THREE.SRGBColorSpace
+          texture.wrapS = THREE.RepeatWrapping
+          texture.wrapT = THREE.RepeatWrapping
+          texture.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
+        }
+        if (child.material) {
+          const mats = Array.isArray(child.material) ? child.material : [child.material]
+          mats.forEach(mat => {
+            if (mat !== origMaterialsRef.current?.[meshIndex]) {
               if (mat.map && typeof mat.map.dispose === 'function') mat.map.dispose()
               if (typeof mat.dispose === 'function') mat.dispose()
-            })
-          }
-          child.material = new THREE.MeshStandardNodeMaterial({
-            color: texture ? '#ffffff' : (settings.color || '#cccccc'),
-            roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
-            metalness: settings.metalness !== undefined ? settings.metalness : 0,
-            map: texture,
+            }
           })
-          meshIndex++
         }
-      })
-    }
+        child.material = new THREE.MeshStandardNodeMaterial({
+          color: texture ? '#ffffff' : (settings.color || '#cccccc'),
+          roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
+          metalness: settings.metalness !== undefined ? settings.metalness : 0,
+          map: texture,
+        })
+        meshIndex++
+      }
+    })
   }, [clonedScene, JSON.stringify(materialSettings)]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Notify SSGIPostProcessing which object/part to outline.
