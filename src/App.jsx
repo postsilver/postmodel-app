@@ -488,12 +488,9 @@ function DraggableFurniture({ path, ...rest }) {
     const box = new THREE.Box3().setFromObject(clone)
     const center = new THREE.Vector3()
     box.getCenter(center)
-    clone.traverse((child) => {
-      if (child.isMesh && child.geometry) {
-        child.geometry = child.geometry.clone()
-        child.geometry.translate(-center.x, -box.min.y, -center.z)
-      }
-    })
+    clone.position.x -= center.x
+    clone.position.y -= box.min.y
+    clone.position.z -= center.z
     return clone
   }, [scene])
   return <DraggableMeshBase clonedScene={clonedScene} {...rest} />
