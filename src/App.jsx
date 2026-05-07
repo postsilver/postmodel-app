@@ -1109,6 +1109,7 @@ function ScaleRow({ objScale, scaleLocked, onUpdateScale, selectedId }) {
 
 function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId, nativeMat }) {
   const [tab, setTab] = useState('material')
+  const [isUploadingTex, setIsUploadingTex] = useState(false)
   const texInputRef = useRef()
 
   const item = selectedId ? placedFurniture.find(i => i.instanceId === selectedId) : null
@@ -1153,10 +1154,26 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
     metalness: nativeMat.metalness ?? meshMat.metalness,
   } : meshMat
 
-  const handleTexUpload = (file) => {
+  const handleTexUpload = async (file) => {
     if (!file || !item) return
-    const url = URL.createObjectURL(file)
-    handleMatChange({ textureUrl: url })
+    setIsUploadingTex(true)
+    try {
+      const blob = await upload(file.name, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+        clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }),
+      })
+      handleMatChange({ textureUrl: blob.url })
+      fetch('/api/upload-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: userId || null, blobUrl: blob.url, filename: file.name, fileSize: file.size }),
+      }).catch(() => {})
+    } catch (err) {
+      console.error('Texture upload failed:', err)
+    } finally {
+      setIsUploadingTex(false)
+    }
   }
 
   const tabBtn = (id, label) => (
@@ -1234,9 +1251,9 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                         <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                           onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
                         />
-                        <button onClick={() => texInputRef.current?.click()}
+                        <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
                           style={{ padding: '3px 7px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#777', cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}>
-                          ↑
+                          {isUploadingTex ? '…' : '↑'}
                         </button>
                         {meshMat.textureUrl && (
                           <button onClick={() => handleMatChange({ textureUrl: null })}
@@ -1262,9 +1279,9 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                 onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
               />
               <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-                <button onClick={() => texInputRef.current?.click()}
+                <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
                   style={{ flex: 1, padding: '5px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#aaa', cursor: 'pointer', fontSize: '11px' }}>
-                  ↑ Upload image
+                  {isUploadingTex ? 'Uploading…' : '↑ Upload image'}
                 </button>
                 {displayMat.textureUrl && (
                   <button onClick={() => handleMatChange({ textureUrl: null })}
@@ -1447,13 +1464,25 @@ function App() {
     if (item && userId) {
       const toDelete = new Set()
       if (item.sourceUrl?.startsWith('https://')) toDelete.add(item.sourceUrl)
-      // Only delete texture if no other scene item references the same URL
-      if (item.material?.textureUrl?.startsWith('https://')) {
-        const isShared = placedFurniture.some(
-          other => other.instanceId !== selectedId && other.material?.textureUrl === item.material.textureUrl
-        )
-        if (!isShared) toDelete.add(item.material.textureUrl)
+
+      // Collect all texture URLs from this item (top-level + per-child meshMaterials)
+      const texUrls = new Set()
+      if (item.material?.textureUrl?.startsWith('https://')) texUrls.add(item.material.textureUrl)
+      if (item.material?.meshMaterials) {
+        for (const perMesh of Object.values(item.material.meshMaterials)) {
+          if (perMesh?.textureUrl?.startsWith('https://')) texUrls.add(perMesh.textureUrl)
+        }
       }
+      // Only delete a texture URL if no other scene item references it
+      for (const texUrl of texUrls) {
+        const isShared = placedFurniture.some(other => {
+          if (other.instanceId === selectedId) return false
+          if (other.material?.textureUrl === texUrl) return true
+          return Object.values(other.material?.meshMaterials || {}).some(m => m?.textureUrl === texUrl)
+        })
+        if (!isShared) toDelete.add(texUrl)
+      }
+
       toDelete.forEach(url => {
         fetch('/api/upload-complete', {
           method: 'POST',
