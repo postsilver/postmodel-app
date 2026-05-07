@@ -51,6 +51,35 @@ function decodeScene(encoded) {
 }
 
 
+function LoadingMarker({ position }) {
+  useEffect(() => {
+    if (document.getElementById('lm-spin-style')) return
+    const s = document.createElement('style')
+    s.id = 'lm-spin-style'
+    s.textContent = '@keyframes lm-spin{to{transform:rotate(360deg)}}'
+    document.head.appendChild(s)
+  }, [])
+  return (
+    <Html position={position ?? [0, 0, 0]} center style={{ pointerEvents: 'none' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '7px',
+        background: 'rgba(20,20,20,0.72)', borderRadius: '6px',
+        padding: '6px 11px', color: '#ccc', fontSize: '12px',
+        fontFamily: 'Arial,sans-serif', whiteSpace: 'nowrap',
+        backdropFilter: 'blur(6px)',
+      }}>
+        <div style={{
+          width: 13, height: 13, flexShrink: 0,
+          border: '2px solid rgba(255,255,255,0.18)',
+          borderTop: '2px solid #bbb', borderRadius: '50%',
+          animation: 'lm-spin 0.7s linear infinite',
+        }} />
+        Loading…
+      </div>
+    </Html>
+  )
+}
+
 function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
   const isDragging = useRef(false)
   const lastY = useRef(0)
@@ -553,6 +582,7 @@ function DraggableUploadedMesh({ sourceUrl, fileFormat, ...rest }) {
       .then((obj3d) => { if (obj3d) setClonedScene(obj3d) })
       .catch((err) => console.error('Mesh load error:', err))
   }, [sourceUrl, fileFormat])
+  if (!clonedScene) return <LoadingMarker position={rest.position} />
   return <DraggableMeshBase clonedScene={clonedScene} {...rest} />
 }
 
@@ -653,7 +683,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           onSelectScene,
         }
         return (
-          <Suspense key={item.instanceId} fallback={null}>
+          <Suspense key={item.instanceId} fallback={<LoadingMarker position={item.position} />}>
             {isGltf
               ? <DraggableFurniture path={item.file || item.sourceUrl} {...sharedProps} />
               : <DraggableUploadedMesh sourceUrl={item.sourceUrl} fileFormat={fmt} {...sharedProps} />
