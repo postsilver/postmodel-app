@@ -3,7 +3,6 @@ import { Canvas, useFrame, useThree, extend } from '@react-three/fiber'
 import { OrbitControls, PointerLockControls, useGLTF, Environment, Html } from '@react-three/drei'
 import { useDrag } from '@use-gesture/react'
 import * as THREE from 'three/webgpu'
-import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
@@ -1107,7 +1106,7 @@ function ScaleRow({ objScale, scaleLocked, onUpdateScale, selectedId }) {
   )
 }
 
-function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId, nativeMat }) {
+function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId, nativeMat, sessionBlobsRef }) {
   const [tab, setTab] = useState('material')
   const [isUploadingTex, setIsUploadingTex] = useState(false)
   const texInputRef = useRef()
@@ -1158,16 +1157,23 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
     if (!file || !item) return
     setIsUploadingTex(true)
     try {
-      const blob = await upload(file.name, file, {
-        access: 'public',
-        handleUploadUrl: '/api/upload',
-        clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }),
+      const res = await fetch('/api/upload?action=texture', {
+        method: 'POST',
+        body: file,
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+          'X-Filename': encodeURIComponent(file.name),
+          ...(userId ? { 'X-User-Id': userId } : {}),
+        },
       })
-      handleMatChange({ textureUrl: blob.url })
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
+      const { url } = await res.json()
+      handleMatChange({ textureUrl: url })
+      sessionBlobsRef.current.add(url)
       fetch('/api/upload-complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: userId || null, blobUrl: blob.url, filename: file.name, fileSize: file.size }),
+        body: JSON.stringify({ userId: userId || null, blobUrl: url, filename: file.name, fileSize: file.size }),
       }).catch(() => {})
     } catch (err) {
       console.error('Texture upload failed:', err)
@@ -1772,6 +1778,7 @@ const updateScale = (instanceId, newScale) => {
           onAmbientIntensity={setPointLightIntensity}
           userId={userId}
           nativeMat={nativeMat}
+          sessionBlobsRef={sessionBlobsRef}
         />
       )}
 
