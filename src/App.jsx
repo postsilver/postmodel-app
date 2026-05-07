@@ -1240,21 +1240,23 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
           {!item ? noSel('Select an object') : <>
             {partChip}
 
-            {/* Native texture slots from the loaded file */}
-            {isPartMode && nativeMat?.slots?.length > 0 && <>
+            {/* Texture slots — always shown in part mode */}
+            {isPartMode && <>
               {lbl('TEXTURES')}
               <div style={{ marginBottom: '10px' }}>
-                {nativeMat.slots.map(slot => (
-                  <div key={slot.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                    {slot.thumbnail
-                      ? <img src={slot.thumbnail} style={{ width: 38, height: 38, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid #2e2e2e' }} />
-                      : <div style={{ width: 38, height: 38, background: '#222', borderRadius: 3, flexShrink: 0, border: '1px solid #2e2e2e' }} />
-                    }
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '9px', color: '#555', letterSpacing: '0.07em' }}>{slot.label}</div>
-                    </div>
-                    {slot.label === 'BASE COLOR' && (
-                      <>
+                {(nativeMat?.slots?.length > 0 ? nativeMat.slots : [{ label: 'BASE COLOR', thumbnail: null }]).map(slot => {
+                  const isBase = slot.label === 'BASE COLOR'
+                  const previewUrl = isBase && meshMat.textureUrl ? meshMat.textureUrl : null
+                  return (
+                    <div key={slot.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                      {(previewUrl ?? slot.thumbnail)
+                        ? <img src={previewUrl ?? slot.thumbnail} style={{ width: 38, height: 38, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid #2e2e2e' }} />
+                        : <div style={{ width: 38, height: 38, background: '#222', borderRadius: 3, flexShrink: 0, border: '1px solid #2e2e2e' }} />
+                      }
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '9px', color: '#555', letterSpacing: '0.07em' }}>{slot.label}</div>
+                      </div>
+                      {isBase && <>
                         <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                           onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
                         />
@@ -1266,16 +1268,24 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                           <button onClick={() => handleMatChange({ textureUrl: null })}
                             style={{ padding: '3px 6px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#555', cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}>✕</button>
                         )}
-                      </>
-                    )}
-                  </div>
-                ))}
+                      </>}
+                    </div>
+                  )
+                })}
               </div>
+              {meshMat.textureUrl && <>
+                {lbl('TEXTURE SCALE')}
+                <input type="number" step="0.1" min="0.01"
+                  value={meshMat.textureScale ?? 1}
+                  onChange={e => handleMatChange({ textureScale: parseFloat(e.target.value) || 1 })}
+                  style={{ ...INP, marginBottom: '12px' }}
+                />
+              </>}
               {divider}
             </>}
 
-            {/* Fallback texture upload when no native textures */}
-            {!(isPartMode && nativeMat?.slots?.length > 0) && <>
+            {/* Texture upload — whole-object mode */}
+            {!isPartMode && <>
               {lbl('TEXTURE')}
               <input type="text" placeholder="Paste image URL…"
                 value={displayMat.textureUrl || ''}
