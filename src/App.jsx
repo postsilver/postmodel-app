@@ -80,21 +80,21 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
     <group position={[0, baseY, 0]}>
       <group scale={[counterScale, counterScale, counterScale]}>
         {/* Shaft */}
-        <mesh position={[0, 1, 0]}
+        <mesh position={[0, 0.18, 0]}
           onPointerDown={handleDown}
           onPointerMove={handleMove}
           onPointerUp={handleUp}
         >
-          <cylinderGeometry args={[0.02, 0.02, 2, 8]} />
+          <cylinderGeometry args={[0.012, 0.012, 0.36, 8]} />
           <meshStandardMaterial color="#51cf66" depthTest={false} />
         </mesh>
         {/* Arrowhead */}
-        <mesh position={[0, 2.15, 0]}
+        <mesh position={[0, 0.42, 0]}
           onPointerDown={handleDown}
           onPointerMove={handleMove}
           onPointerUp={handleUp}
         >
-          <coneGeometry args={[0.07, 0.3, 8]} />
+          <coneGeometry args={[0.05, 0.12, 8]} />
           <meshStandardMaterial color="#51cf66" depthTest={false} />
         </mesh>
       </group>
@@ -114,12 +114,15 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   const rotFocused = useRef({ x: false, y: false, z: false })
 
   useEffect(() => {
-    if (groupRef.current) {
-      const box = new THREE.Box3().setFromObject(groupRef.current)
-      const sy = scale?.y ?? 1
-      setArrowBase((box.min.y - groupRef.current.position.y) / sy)
+    if (!groupRef.current) return
+    if (selectedPart !== 'all' && clonedScene) {
+      const ms = []
+      clonedScene.traverse(c => { if (c.isMesh && !c.userData.isOutline) ms.push(c) })
+      const m = ms[parseInt(selectedPart)] ?? null
+      if (m) { setArrowBase(m.position.y); return }
     }
-  }, [clonedScene, scale?.y]) // eslint-disable-line react-hooks/exhaustive-deps
+    setArrowBase(0)
+  }, [clonedScene, scale?.y, selectedPart]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (Object.values(rotFocused.current).some(Boolean)) return
