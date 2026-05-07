@@ -51,7 +51,7 @@ function decodeScene(encoded) {
 }
 
 
-function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
+function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
   const isDragging = useRef(false)
   const lastY = useRef(0)
 
@@ -78,24 +78,26 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit }) {
 
   return (
     <group position={[0, baseY, 0]}>
-      {/* Shaft */}
-      <mesh position={[0, 1, 0]}
-        onPointerDown={handleDown}
-        onPointerMove={handleMove}
-        onPointerUp={handleUp}
-      >
-        <cylinderGeometry args={[0.02, 0.02, 2, 8]} />
-        <meshStandardMaterial color="#51cf66" depthTest={false} />
-      </mesh>
-      {/* Arrowhead */}
-      <mesh position={[0, 2.15, 0]}
-        onPointerDown={handleDown}
-        onPointerMove={handleMove}
-        onPointerUp={handleUp}
-      >
-        <coneGeometry args={[0.07, 0.3, 8]} />
-        <meshStandardMaterial color="#51cf66" depthTest={false} />
-      </mesh>
+      <group scale={[counterScale, counterScale, counterScale]}>
+        {/* Shaft */}
+        <mesh position={[0, 1, 0]}
+          onPointerDown={handleDown}
+          onPointerMove={handleMove}
+          onPointerUp={handleUp}
+        >
+          <cylinderGeometry args={[0.02, 0.02, 2, 8]} />
+          <meshStandardMaterial color="#51cf66" depthTest={false} />
+        </mesh>
+        {/* Arrowhead */}
+        <mesh position={[0, 2.15, 0]}
+          onPointerDown={handleDown}
+          onPointerMove={handleMove}
+          onPointerUp={handleUp}
+        >
+          <coneGeometry args={[0.07, 0.3, 8]} />
+          <meshStandardMaterial color="#51cf66" depthTest={false} />
+        </mesh>
+      </group>
     </group>
   )
 }
@@ -114,9 +116,10 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   useEffect(() => {
     if (groupRef.current) {
       const box = new THREE.Box3().setFromObject(groupRef.current)
-      setArrowBase(box.min.y - groupRef.current.position.y)
+      const sy = scale?.y ?? 1
+      setArrowBase((box.min.y - groupRef.current.position.y) / sy)
     }
-  }, [clonedScene])
+  }, [clonedScene, scale?.y]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (Object.values(rotFocused.current).some(Boolean)) return
@@ -324,30 +327,36 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
-        <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit} onDrag={(delta) => {
-          let mesh = null
-          if (selectedPart !== 'all' && clonedScene) {
-            const ms = []
-            clonedScene.traverse(c => { if (c.isMesh && !c.userData.isOutline) ms.push(c) })
-            mesh = ms[parseInt(selectedPart)] ?? null
-          }
-          if (mesh) {
-            const newY = mesh.position.y + delta
-            mesh.position.y = newY
-            const orig = origPositionsRef.current?.[parseInt(selectedPart)]
-            const existing = partTransforms?.[selectedPart] ?? {}
-            onUpdatePartTransform?.(selectedPart, { ...existing, position: [
-              mesh.position.x - (orig?.position[0] ?? 0),
-              newY - (orig?.position[1] ?? 0),
-              mesh.position.z - (orig?.position[2] ?? 0),
-            ] })
-          } else {
-            const newY = groupRef.current.position.y + delta
-            groupRef.current.position.y = newY
-            pos.current = [pos.current[0], newY, pos.current[2]]
-            if (onPositionChange) onPositionChange([...pos.current])
-          }
-        }} />
+        <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit}
+          counterScale={1 / (scale?.y ?? 1)}
+          onDrag={(delta) => {
+            let mesh = null
+            if (selectedPart !== 'all' && clonedScene) {
+              const ms = []
+              clonedScene.traverse(c => { if (c.isMesh && !c.userData.isOutline) ms.push(c) })
+              mesh = ms[parseInt(selectedPart)] ?? null
+            }
+            if (mesh) {
+              const parent = mesh.parent
+              const worldScale = new THREE.Vector3()
+              parent?.getWorldScale(worldScale)
+              const localDelta = (worldScale.y > 0) ? delta / worldScale.y : delta
+              const newY = mesh.position.y + localDelta
+              mesh.position.y = newY
+              const orig = origPositionsRef.current?.[parseInt(selectedPart)]
+              const existing = partTransforms?.[selectedPart] ?? {}
+              onUpdatePartTransform?.(selectedPart, { ...existing, position: [
+                mesh.position.x - (orig?.position[0] ?? 0),
+                newY - (orig?.position[1] ?? 0),
+                mesh.position.z - (orig?.position[2] ?? 0),
+              ] })
+            } else {
+              const newY = groupRef.current.position.y + delta
+              groupRef.current.position.y = newY
+              pos.current = [pos.current[0], newY, pos.current[2]]
+              if (onPositionChange) onPositionChange([...pos.current])
+            }
+          }} />
       )}
       {rotPanelActive && isSelected && !isEmbed && (
         <Html position={[0, Math.max(1.8, -arrowBase + 1.2), 0]} style={{ pointerEvents: 'auto' }}>
