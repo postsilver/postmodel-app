@@ -79,24 +79,22 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
   return (
     <group position={[0, baseY, 0]}>
       <group scale={[counterScale, counterScale, counterScale]}>
-        {/* Blue axis line — extends 6 units each way from mesh origin */}
-        <mesh>
-          <cylinderGeometry args={[0.006, 0.006, 12, 8]} />
-          <meshBasicMaterial color="#4d8cf5" depthTest={false} />
+        {/* Blue axis line — always on top, no depth interaction */}
+        <mesh renderOrder={999}>
+          <cylinderGeometry args={[0.007, 0.007, 12, 8]} />
+          <meshBasicMaterial color="#4d8cf5" depthTest={false} depthWrite={false} />
         </mesh>
-        {/* Small white dot at origin */}
-        <mesh>
-          <sphereGeometry args={[0.028, 8, 8]} />
-          <meshBasicMaterial color="#ffffff" depthTest={false} />
-        </mesh>
-        {/* Wide invisible cylinder — hit area for dragging */}
+        {/* Wide invisible hit area — no lighting, shadows, or depth effects */}
         <mesh
+          renderOrder={999}
+          castShadow={false}
+          receiveShadow={false}
           onPointerDown={handleDown}
           onPointerMove={handleMove}
           onPointerUp={handleUp}
         >
           <cylinderGeometry args={[0.12, 0.12, 12, 8]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          <meshBasicMaterial transparent opacity={0} depthTest={false} depthWrite={false} />
         </mesh>
       </group>
     </group>
