@@ -115,11 +115,18 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
 
   useEffect(() => {
     if (!groupRef.current) return
+    groupRef.current.updateWorldMatrix(true, false)
     if (selectedPart !== 'all' && clonedScene) {
       const ms = []
       clonedScene.traverse(c => { if (c.isMesh && !c.userData.isOutline) ms.push(c) })
       const m = ms[parseInt(selectedPart)] ?? null
-      if (m) { setArrowBase(m.position.y); return }
+      if (m) {
+        const wp = new THREE.Vector3()
+        m.getWorldPosition(wp)
+        groupRef.current.worldToLocal(wp)
+        setArrowBase(wp.y)
+        return
+      }
     }
     setArrowBase(0)
   }, [clonedScene, scale?.y, selectedPart]) // eslint-disable-line react-hooks/exhaustive-deps
