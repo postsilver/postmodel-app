@@ -14,7 +14,7 @@ const StableEnvironment = memo(function StableEnvironment({ intensity }) {
   return <Environment preset="studio" background={false} environmentIntensity={intensity} />
 })
 
-const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1 }
+const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1, glass: 0 }
 
 function nullBlobTextureUrls(mat) {
   if (!mat || typeof mat !== 'object') return mat
@@ -283,6 +283,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
           (settings.color && settings.color !== DEFAULT_MATERIAL.color) ||
           (settings.roughness !== undefined && settings.roughness !== DEFAULT_MATERIAL.roughness) ||
           (settings.metalness !== undefined && settings.metalness !== DEFAULT_MATERIAL.metalness) ||
+          (settings.glass > 0) ||
           !!perMesh
         if (!hasOverride) {
           const orig = origMaterialsRef.current?.[meshIndex]
@@ -313,11 +314,19 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
             }
           })
         }
-        const newMat = new THREE.MeshStandardNodeMaterial({
+        const isGlass = settings.glass > 0
+        const MatClass = isGlass ? THREE.MeshPhysicalNodeMaterial : THREE.MeshStandardNodeMaterial
+        const newMat = new MatClass({
           color: texture ? '#ffffff' : (settings.color || '#cccccc'),
           roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
           metalness: settings.metalness !== undefined ? settings.metalness : 0,
           map: texture,
+          ...(isGlass && {
+            transmission: settings.glass,
+            transparent: true,
+            ior: 1.5,
+            thickness: 0.5,
+          }),
         })
         pendingMatRef = newMat
         child.material = newMat
@@ -1331,6 +1340,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
             </div>
             {sliderRow('ROUGHNESS', displayMat.roughness ?? 0.5, 0, 1, v => handleMatChange({ roughness: v }))}
             {sliderRow('METALNESS', displayMat.metalness ?? 0, 0, 1, v => handleMatChange({ metalness: v }))}
+            {sliderRow('GLASS', displayMat.glass ?? 0, 0, 1, v => handleMatChange({ glass: v }))}
 
             {hasPartOverride && <>
               {divider}
