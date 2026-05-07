@@ -351,16 +351,18 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     const src = origMaterialsRef.current?.[parseInt(selectedPart)] ?? mesh.material
     const mat = Array.isArray(src) ? src[0] : src
     if (!mat) { onPartNativeMaterial(null); return }
-    const texSlots = [
-      { label: 'BASE COLOR',  tex: mat.map },
-      { label: 'ROUGHNESS',   tex: mat.roughnessMap },
-      { label: 'NORMAL',      tex: mat.normalMap },
-      { label: 'METALNESS',   tex: mat.metalnessMap },
-      { label: 'EMISSIVE',    tex: mat.emissiveMap },
-      { label: 'AO',          tex: mat.aoMap },
+    // Always emit the 4 fixed PBR slots (gray box when no texture); add EMISSIVE/AO only when present
+    const FIXED = [
+      { label: 'BASE COLOR', tex: mat.map },
+      { label: 'ROUGHNESS',  tex: mat.roughnessMap },
+      { label: 'METALNESS',  tex: mat.metalnessMap },
+      { label: 'NORMAL',     tex: mat.normalMap },
+    ]
+    const EXTRA = [
+      { label: 'EMISSIVE', tex: mat.emissiveMap },
+      { label: 'AO',       tex: mat.aoMap },
     ].filter(s => s.tex)
-    console.log('[nativeMat] part', selectedPart, 'mat:', mat.type, 'map:', mat.map, 'slots found:', texSlots.length)
-    const slots = texSlots.map(s => ({ label: s.label, thumbnail: textureThumbnail(s.tex) }))
+    const slots = [...FIXED, ...EXTRA].map(s => ({ label: s.label, thumbnail: textureThumbnail(s.tex) }))
     onPartNativeMaterial({
       name: mat.name || '',
       slots,
@@ -1244,7 +1246,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
             {isPartMode && <>
               {lbl('TEXTURES')}
               <div style={{ marginBottom: '10px' }}>
-                {(nativeMat?.slots?.length > 0 ? nativeMat.slots : [{ label: 'BASE COLOR', thumbnail: null }]).map(slot => {
+                {(nativeMat?.slots ?? [{ label: 'BASE COLOR', thumbnail: null }]).map(slot => {
                   const isBase = slot.label === 'BASE COLOR'
                   const previewUrl = isBase && meshMat.textureUrl ? meshMat.textureUrl : null
                   return (
