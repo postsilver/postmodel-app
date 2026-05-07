@@ -52,13 +52,20 @@ function decodeScene(encoded) {
 
 
 function textureThumbnail(texture) {
-  if (!texture?.image) return null
+  if (!texture) return null
+  const image = texture.image ?? texture.source?.data
+  if (!image) return null
   try {
     const canvas = document.createElement('canvas')
     canvas.width = 48; canvas.height = 48
-    canvas.getContext('2d').drawImage(texture.image, 0, 0, 48, 48)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(image, 0, 0, 48, 48)
     return canvas.toDataURL('image/jpeg', 0.8)
-  } catch { return null }
+  } catch (e) {
+    console.warn('[textureThumbnail] could not render thumbnail:', e)
+    return null
+  }
 }
 
 function LoadingMarker({ position }) {
@@ -285,9 +292,13 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
         }
 
         let texture = null
+        let pendingMatRef = null
         if (settings.textureUrl) {
           const loader = new THREE.TextureLoader()
-          texture = loader.load(settings.textureUrl)
+          texture = loader.load(settings.textureUrl, (tex) => {
+            tex.needsUpdate = true
+            if (pendingMatRef) pendingMatRef.needsUpdate = true
+          })
           texture.colorSpace = THREE.SRGBColorSpace
           texture.wrapS = THREE.RepeatWrapping
           texture.wrapT = THREE.RepeatWrapping
@@ -302,12 +313,14 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
             }
           })
         }
-        child.material = new THREE.MeshStandardNodeMaterial({
+        const newMat = new THREE.MeshStandardNodeMaterial({
           color: texture ? '#ffffff' : (settings.color || '#cccccc'),
           roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
           metalness: settings.metalness !== undefined ? settings.metalness : 0,
           map: texture,
         })
+        pendingMatRef = newMat
+        child.material = newMat
         meshIndex++
       }
     })
@@ -338,14 +351,16 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     const src = origMaterialsRef.current?.[parseInt(selectedPart)] ?? mesh.material
     const mat = Array.isArray(src) ? src[0] : src
     if (!mat) { onPartNativeMaterial(null); return }
-    const slots = [
+    const texSlots = [
       { label: 'BASE COLOR',  tex: mat.map },
       { label: 'ROUGHNESS',   tex: mat.roughnessMap },
       { label: 'NORMAL',      tex: mat.normalMap },
       { label: 'METALNESS',   tex: mat.metalnessMap },
       { label: 'EMISSIVE',    tex: mat.emissiveMap },
       { label: 'AO',          tex: mat.aoMap },
-    ].filter(s => s.tex).map(s => ({ label: s.label, thumbnail: textureThumbnail(s.tex) }))
+    ].filter(s => s.tex)
+    console.log('[nativeMat] part', selectedPart, 'mat:', mat.type, 'map:', mat.map, 'slots found:', texSlots.length)
+    const slots = texSlots.map(s => ({ label: s.label, thumbnail: textureThumbnail(s.tex) }))
     onPartNativeMaterial({
       name: mat.name || '',
       slots,
@@ -1093,7 +1108,6 @@ function ScaleRow({ objScale, scaleLocked, onUpdateScale, selectedId }) {
 
 function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId, nativeMat }) {
   const [tab, setTab] = useState('material')
-  const [isUploadingTex, setIsUploadingTex] = useState(false)
   const texInputRef = useRef()
 
   const item = selectedId ? placedFurniture.find(i => i.instanceId === selectedId) : null
@@ -1138,21 +1152,10 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
     metalness: nativeMat.metalness ?? meshMat.metalness,
   } : meshMat
 
-  const handleTexUpload = async (file) => {
+  const handleTexUpload = (file) => {
     if (!file || !item) return
-    setIsUploadingTex(true)
-    try {
-      const blob = await upload(file.name, file, {
-        access: 'public',
-        handleUploadUrl: '/api/upload',
-        clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }),
-      })
-      handleMatChange({ textureUrl: blob.url })
-    } catch (err) {
-      console.error('Texture upload failed:', err)
-    } finally {
-      setIsUploadingTex(false)
-    }
+    const url = URL.createObjectURL(file)
+    handleMatChange({ textureUrl: url })
   }
 
   const tabBtn = (id, label) => (
@@ -1230,9 +1233,9 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                         <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                           onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
                         />
-                        <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
+                        <button onClick={() => texInputRef.current?.click()}
                           style={{ padding: '3px 7px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#777', cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}>
-                          {isUploadingTex ? '…' : '↑'}
+                          ↑
                         </button>
                         {meshMat.textureUrl && (
                           <button onClick={() => handleMatChange({ textureUrl: null })}
@@ -1258,9 +1261,9 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                 onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
               />
               <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
-                <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
+                <button onClick={() => texInputRef.current?.click()}
                   style={{ flex: 1, padding: '5px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#aaa', cursor: 'pointer', fontSize: '11px' }}>
-                  {isUploadingTex ? 'Uploading…' : '↑ Upload image'}
+                  ↑ Upload image
                 </button>
                 {displayMat.textureUrl && (
                   <button onClick={() => handleMatChange({ textureUrl: null })}
@@ -1402,6 +1405,7 @@ function App() {
   }, [isEmbed, selectedId])
 
   useEffect(() => {
+    setNativeMat(null)
     if (!selectedId) { setRotPanelActive(false); setSelectedPart('all'); setSelectedScene(null) }
     // Don't auto-reset selectedPart on object switch — sidebar click handlers set it explicitly
   }, [selectedId])
