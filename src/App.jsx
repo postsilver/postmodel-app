@@ -294,6 +294,7 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     const onDown = (e) => {
       if (e.button !== 1) return
       e.preventDefault()
+      e.stopPropagation()
       dragging = true
       lastY = e.clientY
       onDragCommit?.()
@@ -310,11 +311,12 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       dragging = false
       if (orbitRef?.current) orbitRef.current.enabled = true
     }
-    window.addEventListener('mousedown', onDown)
+    // Capture phase so we intercept before OrbitControls (which listens on the canvas element)
+    window.addEventListener('mousedown', onDown, true)
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => {
-      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('mousedown', onDown, true)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
