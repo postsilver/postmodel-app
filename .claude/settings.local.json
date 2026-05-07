@@ -5,7 +5,14 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npm ls:*)",
+      "Bash(ls d:/HCI/room-demo/node_modules/three/webgpu* d:/HCI/room-demo/node_modules/three/src/nodes/)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(curl -s https://raw.githubusercontent.com/pascalorg/editor/main/packages/viewer/src/components/viewer/index.tsx)",
+      "Read(//tmp/editor/packages/viewer/src/lib/**)",
+      "Read(//tmp/editor/packages/viewer/src/components/viewer/**)"
     ]
   }
 }
