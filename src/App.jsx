@@ -898,6 +898,44 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
       <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>IMPORT</div>
       <button onClick={onUploadMesh} style={btnStyle}>↑ Upload Mesh</button>
 
+      {/* Embed / share */}
+      <div style={{ marginTop: '10px' }}>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button onClick={() => setShowEmbed(!showEmbed)} style={{ flex: 1, padding: '10px', background: '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px' }}>
+            {showEmbed ? 'Hide iframe' : 'iframe code'}
+          </button>
+          <button onClick={handleShareLink} disabled={sharing} style={{ flex: 1, padding: '10px', background: shareMsg === 'Link copied!' ? '#1a5c2a' : shareMsg ? '#5c1a1a' : '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: sharing ? 'default' : 'pointer', fontSize: '13px', opacity: sharing ? 0.7 : 1 }}>
+            {shareMsg ?? (sharing ? 'Sharing…' : 'Share link')}
+          </button>
+        </div>
+
+        {showEmbed && (
+          <div style={{ marginTop: '12px' }}>
+            <label style={{ fontSize: '12px', color: '#888' }}>Base URL</label>
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)}
+              style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '12px', color: '#888' }}>Width</label>
+                <input type="number" value={embedWidth} onChange={(e) => setEmbedWidth(Number(e.target.value))}
+                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: '12px', color: '#888' }}>Height</label>
+                <input type="number" value={embedHeight} onChange={(e) => setEmbedHeight(Number(e.target.value))}
+                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            <textarea readOnly value={getIframeCode()} rows={6}
+              style={{ width: '100%', marginTop: '8px', padding: '8px', background: '#111', color: '#7ec8e3', border: '1px solid #333', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
+            <button onClick={handleCopy}
+              style={{ marginTop: '6px', padding: '8px', background: copied ? '#1a5c2a' : '#333', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', width: '100%', fontSize: '12px' }}>
+              {copied ? 'Copied!' : 'Copy Code'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Scene outliner — Blender-style hierarchy */}
       {placedFurniture.length > 0 && (
         <>
@@ -952,8 +990,12 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
                       {item.name}
                     </span>
                   </div>
-                  {/* Child mesh rows — hidden when collapsed */}
-                  {hasChildren && !isCollapsed && itemMeshList.map((mesh, meshIndex) => {
+                  {/* Child mesh rows — hidden when collapsed, sorted alphabetically */}
+                  {hasChildren && !isCollapsed && itemMeshList
+                    .map((mesh, i) => ({ ...mesh, originalIndex: i }))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                    .map((mesh) => {
+                    const meshIndex = mesh.originalIndex
                     const isPartSel = isItemSelected && selectedPart === String(meshIndex)
                     return (
                       <div
@@ -992,44 +1034,6 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
         </>
       )}
 
-      {/* Embed / share */}
-      <div style={{ marginTop: '24px', borderTop: '1px solid #333', paddingTop: '20px' }}>
-        <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>EMBED</div>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button onClick={() => setShowEmbed(!showEmbed)} style={{ flex: 1, padding: '10px', background: '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px' }}>
-            {showEmbed ? 'Hide iframe' : 'iframe code'}
-          </button>
-          <button onClick={handleShareLink} disabled={sharing} style={{ flex: 1, padding: '10px', background: shareMsg === 'Link copied!' ? '#1a5c2a' : shareMsg ? '#5c1a1a' : '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: sharing ? 'default' : 'pointer', fontSize: '13px', opacity: sharing ? 0.7 : 1 }}>
-            {shareMsg ?? (sharing ? 'Sharing…' : 'Share link')}
-          </button>
-        </div>
-
-        {showEmbed && (
-          <div style={{ marginTop: '12px' }}>
-            <label style={{ fontSize: '12px', color: '#888' }}>Base URL</label>
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)}
-              style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '12px', color: '#888' }}>Width</label>
-                <input type="number" value={embedWidth} onChange={(e) => setEmbedWidth(Number(e.target.value))}
-                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '12px', color: '#888' }}>Height</label>
-                <input type="number" value={embedHeight} onChange={(e) => setEmbedHeight(Number(e.target.value))}
-                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
-              </div>
-            </div>
-            <textarea readOnly value={getIframeCode()} rows={6}
-              style={{ width: '100%', marginTop: '8px', padding: '8px', background: '#111', color: '#7ec8e3', border: '1px solid #333', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
-            <button onClick={handleCopy}
-              style={{ marginTop: '6px', padding: '8px', background: copied ? '#1a5c2a' : '#333', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', width: '100%', fontSize: '12px' }}>
-              {copied ? 'Copied!' : 'Copy Code'}
-            </button>
-          </div>
-        )}
-      </div>
     </div>
   )
 }
