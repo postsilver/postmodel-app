@@ -8,6 +8,7 @@ import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
 import ControlsHelp from './components/ControlsHelp.jsx'
+import TooltipButton from './components/TooltipButton.jsx'
 
 extend(THREE)
 
@@ -1275,9 +1276,10 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
             })}
           </div>
           {selectedId && (
-            <button onClick={onDeleteSelected} style={{ ...btnStyle, marginTop: '10px', background: 'var(--color-error)' }}>
+            <TooltipButton tooltip="Delete the selected object from the scene" onClick={onDeleteSelected}
+              aria-label="Delete selected object" style={{ ...btnStyle, marginTop: '10px', background: 'var(--color-error)' }}>
               🗑️ Delete Selected
-            </button>
+            </TooltipButton>
           )}
         </>
       )}
@@ -1582,15 +1584,15 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                         <div style={{ fontSize: 'var(--font-size-label)', color: 'var(--color-text-secondary)', letterSpacing: '0.07em' }}>{slot.label}</div>
                       </div>
                       {uploadedUrl && (
-                        <button onClick={() => handleMatChange({ [field]: null })}
+                        <TooltipButton tooltip={`Remove ${slotDef.name} texture`} onClick={() => handleMatChange({ [field]: null })}
                           aria-label={`Remove ${slotDef.name} texture`}
-                          style={{ padding: '3px 6px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', flexShrink: 0 }}>✕</button>
+                          style={{ padding: '3px 6px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', flexShrink: 0 }}>✕</TooltipButton>
                       )}
                       {field && (
-                        <button onClick={() => openSlotPicker(field)} disabled={isUploading}
+                        <TooltipButton tooltip={`Upload ${slotDef.name} texture, or drop an image on this row`}
+                          onClick={() => openSlotPicker(field)} disabled={isUploading}
                           aria-label={`Upload ${slotDef.name} texture`}
                           aria-busy={isUploading || undefined}
-                          title={`Upload ${slotDef.name} texture (or drop an image on this row)`}
                           style={{
                             width: 24, height: 24, padding: 0, flexShrink: 0,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1599,7 +1601,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                             fontSize: 'var(--font-size-label)',
                           }}>
                           {isUploading ? '…' : <UploadIcon />}
-                        </button>
+                        </TooltipButton>
                       )}
                     </div>
                   )
@@ -1633,8 +1635,9 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                   {isUploadingTex ? 'Uploading…' : '↑ Upload image'}
                 </button>
                 {displayMat.textureUrl && (
-                  <button onClick={() => handleMatChange({ textureUrl: null })}
-                    style={{ padding: '5px 10px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-caption)' }}>✕</button>
+                  <TooltipButton tooltip="Remove texture" onClick={() => handleMatChange({ textureUrl: null })}
+                    aria-label="Remove texture"
+                    style={{ padding: '5px 10px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-caption)' }}>✕</TooltipButton>
                 )}
               </div>
               {displayMat.textureUrl && <>
@@ -1698,10 +1701,12 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
             {divider}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <div style={{ fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-heading)', color: 'var(--color-text-secondary)', letterSpacing: '0.07em' }}>SCALE</div>
-              <button onClick={onToggleScaleLock} title={scaleLocked ? 'Uniform (click to free)' : 'Free (click to lock)'}
+              <TooltipButton tooltip={scaleLocked ? 'Uniform scale: X, Y and Z change together. Click to scale each axis separately.' : 'Free scale: each axis scales separately. Click to lock them together.'}
+                onClick={onToggleScaleLock}
+                aria-label="Lock uniform scale" aria-pressed={scaleLocked}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: scaleLocked ? 'var(--color-button)' : 'var(--color-text-secondary)', fontSize: 'var(--font-size-label)', padding: 0, lineHeight: 1 }}>
                 {scaleLocked ? '🔗' : '⛓️'}
-              </button>
+              </TooltipButton>
             </div>
             <ScaleRow objScale={objScale} scaleLocked={scaleLocked} onUpdateScale={onUpdateScale} selectedId={selectedId} />
           </>}
@@ -2177,13 +2182,16 @@ const updateScale = (instanceId, newScale) => {
               ✥ Move
             </button>
           )}
-          <button
-            type="button"
+          <TooltipButton
+            tooltip={navMode === 'orbit'
+              ? 'Walk mode: explore at eye level. Click the view to look around, WASD to move, Esc to stop.'
+              : 'Back to orbit camera: drag to rotate, right-drag to pan, scroll to zoom.'}
+            aria-label={navMode === 'orbit' ? 'Walk mode' : 'Orbit mode'}
             onClick={() => { setNavMode(navMode === 'orbit' ? 'fps' : 'orbit'); setIsPointerLocked(false) }}
             style={FLOATING_BTN}
           >
             {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
-          </button>
+          </TooltipButton>
         </div>
       )}
 
@@ -2315,29 +2323,30 @@ const updateScale = (instanceId, newScale) => {
           backdropFilter: 'blur(8px)',
         }}>
           {[
-            { id: 'mesh', title: 'Mesh', icon: (
+            { id: 'mesh', title: 'Mesh view', tip: 'Mesh view: plain grey clay, to check shapes without materials', icon: (
               <svg viewBox="0 0 20 20" width="15" height="15">
                 <path d="M10 2 L17 6 L17 14 L10 18 L3 14 L3 6 Z" fill="currentColor"/>
               </svg>
             )},
-            { id: 'solid', title: 'Solid', icon: (
+            { id: 'solid', title: 'Solid view', tip: 'Solid view: your materials with quick, simple lighting', icon: (
               <svg viewBox="0 0 20 20" width="15" height="15"><circle cx="10" cy="10" r="7.5" fill="currentColor"/></svg>
             )},
-            { id: 'rendered', title: 'Rendered', icon: (
+            { id: 'rendered', title: 'Rendered view', tip: 'Rendered view: materials with full global illumination (slowest)', icon: (
               <svg viewBox="0 0 20 20" width="15" height="15">
                 <circle cx="10" cy="10" r="7.5" fill="currentColor"/>
                 <circle cx="7.5" cy="7.5" r="2.5" fill="white" opacity="0.45"/>
               </svg>
             )},
-          ].map(({ id, title, icon }) => (
-            <button key={id} title={title} onClick={() => setRenderMode(id)} style={{
+          ].map(({ id, title, tip, icon }) => (
+            <TooltipButton key={id} tooltip={tip} tooltipPlacement="bottom"
+              aria-label={title} aria-pressed={renderMode === id} onClick={() => setRenderMode(id)} style={{
               width: '28px', height: '28px', padding: 0, cursor: 'pointer',
               border: renderMode === id ? '1px solid var(--color-text-secondary)' : '1px solid transparent',
               borderRadius: '4px',
               background: renderMode === id ? 'var(--color-border)' : 'transparent',
               color: renderMode === id ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{icon}</button>
+            }}>{icon}</TooltipButton>
           ))}
         </div>
 

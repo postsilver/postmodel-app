@@ -6,6 +6,7 @@ import keycapFrame from '../assets/controls/keycap-frame.svg'
 import keyM from '../assets/controls/key-m.svg'
 import keyZ from '../assets/controls/key-z.svg'
 import keyR from '../assets/controls/key-r.svg'
+import { POPOVER_SURFACE } from '../styles/popover.js'
 
 // Controls help: a "Controls" button in the viewport that opens the Postmodel
 // controls panel (Figma node 67:480) on hover, keyboard focus, or tap.
@@ -74,9 +75,8 @@ function ControlsPanel({ id, hidden }) {
     // Transparent 8px bridge under the panel keeps hover alive between button and panel
     <div id={id} hidden={hidden} style={{ position: 'absolute', left: 0, bottom: '100%', paddingBottom: 8 }}>
       <div style={{
+        ...POPOVER_SURFACE,
         width: 340, height: 285, boxSizing: 'border-box', padding: '0 0 0 5px',
-        background: 'var(--color-surface)', border: '1px solid var(--color-background)',
-        borderRadius: 5, boxShadow: '0 4px 4px 0 rgba(0,0,0,0.25)',
         overflow: 'hidden',
       }}>
         <h2 style={{ ...headingStyle, height: 29 }}>Navigation</h2>
