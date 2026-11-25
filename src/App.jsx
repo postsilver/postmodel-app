@@ -14,6 +14,10 @@ const StableEnvironment = memo(function StableEnvironment({ intensity }) {
   return <Environment preset="studio" background={false} environmentIntensity={intensity} />
 })
 
+// Selected rows in the scene list: Accent blended into Surface
+const SELECTED_BG = 'color-mix(in srgb, var(--color-accent) 35%, var(--color-surface))'
+const SELECTED_PART_BG = 'color-mix(in srgb, var(--color-accent) 25%, var(--color-surface))'
+
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1, glass: 0 }
 
 function nullBlobTextureUrls(mat) {
@@ -80,15 +84,15 @@ function LoadingMarker({ position }) {
     <Html position={position ?? [0, 0, 0]} center style={{ pointerEvents: 'none' }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: '7px',
-        background: 'rgba(20,20,20,0.72)', borderRadius: '6px',
-        padding: '6px 11px', color: '#ccc', fontSize: '12px',
-        fontFamily: 'Arial,sans-serif', whiteSpace: 'nowrap',
+        background: 'color-mix(in srgb, var(--color-background) 72%, transparent)', borderRadius: '6px',
+        padding: '6px 11px', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-label)',
+        fontFamily: 'var(--font-body)', whiteSpace: 'nowrap',
         backdropFilter: 'blur(6px)',
       }}>
         <div style={{
           width: 13, height: 13, flexShrink: 0,
-          border: '2px solid rgba(255,255,255,0.18)',
-          borderTop: '2px solid #bbb', borderRadius: '50%',
+          border: '2px solid var(--color-border)',
+          borderTop: '2px solid var(--color-text-primary)', borderRadius: '50%',
           animation: 'lm-spin 0.7s linear infinite',
         }} />
         Loading…
@@ -523,26 +527,26 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       {rotPanelActive && isSelected && !isEmbed && (
         <Html position={[0, Math.max(1.8, -arrowBase + 1.2), 0]} style={{ pointerEvents: 'auto' }}>
           <div style={{
-            background: '#242424',
-            border: '1px solid #3a3a3a',
+            background: 'var(--color-surface-raised)',
+            border: '1px solid var(--color-border)',
             borderRadius: '6px',
             padding: '8px 2px 8px 10px',
             width: '210px',
-            fontFamily: 'Arial, sans-serif',
-            fontSize: '12px',
-            color: '#ccc',
+            fontFamily: 'var(--font-body)',
+            fontSize: 'var(--font-size-label)',
+            color: 'var(--color-text-primary)',
             boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
             transform: 'translateX(14px)',
             userSelect: 'none',
           }}>
-            <div style={{ color: '#666', fontSize: '10px', letterSpacing: '0.08em', marginBottom: '6px', paddingRight: '8px' }}>ROTATION</div>
+            <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-heading)', letterSpacing: '0.08em', marginBottom: '6px', paddingRight: '8px' }}>ROTATION</div>
             {[
               { axis: 'x', color: '#e05252' },
               { axis: 'y', color: '#52b352' },
               { axis: 'z', color: '#5285e0' },
             ].map(({ axis, color }) => (
               <div key={axis} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px', gap: '6px' }}>
-                <span style={{ color, width: '12px', fontWeight: 'bold', fontSize: '11px', flexShrink: 0 }}>{axis.toUpperCase()}</span>
+                <span style={{ color, width: '12px', fontWeight: 'bold', fontSize: 'var(--font-size-caption)', flexShrink: 0 }}>{axis.toUpperCase()}</span>
                 <input
                   type="number"
                   step="1"
@@ -560,12 +564,12 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
                   }}
                   onPointerDown={e => e.stopPropagation()}
                   style={{
-                    flex: 1, background: '#1a1a1a', border: '1px solid #3a3a3a',
-                    borderRadius: '3px', color: '#ddd', padding: '3px 6px',
-                    fontSize: '12px', outline: 'none', width: 0,
+                    flex: 1, background: 'var(--color-background)', border: '1px solid var(--color-border)',
+                    borderRadius: '3px', color: 'var(--color-text-primary)', padding: '3px 6px',
+                    fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', outline: 'none', width: 0,
                   }}
                 />
-                <span style={{ color: '#666', fontSize: '11px', paddingRight: '8px' }}>°</span>
+                <span style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-caption)', paddingRight: '8px' }}>°</span>
               </div>
             ))}
           </div>
@@ -869,18 +873,22 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
     }
   }
 
-  const btnStyle = { width: '100%', padding: '10px', background: '#333', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px', textAlign: 'left' }
+  const btnStyle = { width: '100%', padding: '10px', background: 'var(--color-surface-raised)', border: 'none', borderRadius: '6px', color: 'var(--color-text-primary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', textAlign: 'left' }
+  const embedInputStyle = { width: '100%', padding: '6px', marginTop: '4px', background: 'var(--color-surface-raised)', color: 'var(--color-text-primary)', border: 'none', borderRadius: '4px', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', boxSizing: 'border-box' }
+  const embedLabelStyle = { fontSize: 'var(--font-size-label)', color: 'var(--color-text-secondary)' }
+  const shareBg = shareMsg === 'Link copied!' ? 'var(--color-success)' : shareMsg ? 'var(--color-error)' : 'var(--color-button)'
+  const shareFg = shareMsg && shareMsg !== 'Link copied!' ? 'var(--color-text-primary)' : 'var(--color-button-text)'
 
   return (
     <div style={{
       position: 'absolute', left: 0, top: 0, width: '240px', height: '100vh',
-      background: '#1a1a1a', padding: '20px', boxSizing: 'border-box',
-      color: 'white', fontFamily: 'Arial, sans-serif', overflowY: 'auto', zIndex: 100,
+      background: 'var(--color-surface)', padding: '20px', boxSizing: 'border-box',
+      color: 'var(--color-text-primary)', fontFamily: 'var(--font-body)', overflowY: 'auto', zIndex: 100,
     }}>
       {/* Header */}
       {!isGuest && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <button onClick={onGoToDashboard} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '13px', padding: '4px 0' }}>
+          <button onClick={onGoToDashboard} style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', padding: '4px 0' }}>
             ← Projects
           </button>
           <UserButton />
@@ -889,47 +897,47 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
 
       {/* Save Project */}
       {!isGuest && (
-        <button onClick={onSaveProject} style={{ ...btnStyle, background: '#1a5c2a', marginBottom: '20px' }}>
+        <button onClick={onSaveProject} style={{ ...btnStyle, background: 'var(--color-success)', color: 'var(--color-button-text)', marginBottom: '20px' }}>
           {currentProjectName ? `💾 Save "${currentProjectName}"` : '💾 Save Project'}
         </button>
       )}
 
       {/* Import */}
-      <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>IMPORT</div>
+      <div style={{ fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-heading)', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>IMPORT</div>
       <button onClick={onUploadMesh} style={btnStyle}>↑ Upload Mesh</button>
 
       {/* Embed / share */}
       <div style={{ marginTop: '10px' }}>
         <div style={{ display: 'flex', gap: '6px' }}>
-          <button onClick={() => setShowEmbed(!showEmbed)} style={{ flex: 1, padding: '10px', background: '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '13px' }}>
+          <button onClick={() => setShowEmbed(!showEmbed)} style={{ flex: 1, padding: '10px', background: 'var(--color-button)', border: 'none', borderRadius: '6px', color: 'var(--color-button-text)', cursor: 'pointer', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)' }}>
             {showEmbed ? 'Hide iframe' : 'iframe code'}
           </button>
-          <button onClick={handleShareLink} disabled={sharing} style={{ flex: 1, padding: '10px', background: shareMsg === 'Link copied!' ? '#1a5c2a' : shareMsg ? '#5c1a1a' : '#1a3a5c', border: 'none', borderRadius: '6px', color: 'white', cursor: sharing ? 'default' : 'pointer', fontSize: '13px', opacity: sharing ? 0.7 : 1 }}>
+          <button onClick={handleShareLink} disabled={sharing} style={{ flex: 1, padding: '10px', background: shareBg, border: 'none', borderRadius: '6px', color: shareFg, cursor: sharing ? 'default' : 'pointer', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', opacity: sharing ? 0.7 : 1 }}>
             {shareMsg ?? (sharing ? 'Sharing…' : 'Share link')}
           </button>
         </div>
 
         {showEmbed && (
           <div style={{ marginTop: '12px' }}>
-            <label style={{ fontSize: '12px', color: '#888' }}>Base URL</label>
+            <label style={embedLabelStyle}>Base URL</label>
             <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)}
-              style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
+              style={embedInputStyle} />
             <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '12px', color: '#888' }}>Width</label>
+                <label style={embedLabelStyle}>Width</label>
                 <input type="number" value={embedWidth} onChange={(e) => setEmbedWidth(Number(e.target.value))}
-                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
+                  style={embedInputStyle} />
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '12px', color: '#888' }}>Height</label>
+                <label style={embedLabelStyle}>Height</label>
                 <input type="number" value={embedHeight} onChange={(e) => setEmbedHeight(Number(e.target.value))}
-                  style={{ width: '100%', padding: '6px', marginTop: '4px', background: '#333', color: 'white', border: 'none', borderRadius: '4px', fontSize: '12px', boxSizing: 'border-box' }} />
+                  style={embedInputStyle} />
               </div>
             </div>
             <textarea readOnly value={getIframeCode()} rows={6}
-              style={{ width: '100%', marginTop: '8px', padding: '8px', background: '#111', color: '#7ec8e3', border: '1px solid #333', borderRadius: '4px', fontSize: '11px', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
+              style={{ width: '100%', marginTop: '8px', padding: '8px', background: 'var(--color-background)', color: 'var(--color-button)', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: 'var(--font-size-caption)', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
             <button onClick={handleCopy}
-              style={{ marginTop: '6px', padding: '8px', background: copied ? '#1a5c2a' : '#333', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer', width: '100%', fontSize: '12px' }}>
+              style={{ marginTop: '6px', padding: '8px', background: copied ? 'var(--color-success)' : 'var(--color-surface-raised)', border: 'none', borderRadius: '4px', color: copied ? 'var(--color-button-text)' : 'var(--color-text-primary)', cursor: 'pointer', width: '100%', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)' }}>
               {copied ? 'Copied!' : 'Copy Code'}
             </button>
           </div>
@@ -939,7 +947,7 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
       {/* Scene outliner — Blender-style hierarchy */}
       {placedFurniture.length > 0 && (
         <>
-          <div style={{ fontSize: '11px', color: '#555', marginBottom: '4px', marginTop: '24px', letterSpacing: '0.06em' }}>
+          <div style={{ fontSize: 'var(--font-size-caption)', fontFamily: 'var(--font-heading)', color: 'var(--color-text-secondary)', marginBottom: '4px', marginTop: '24px', letterSpacing: '0.06em' }}>
             SCENE
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -964,13 +972,13 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
                     style={{
                       display: 'flex', alignItems: 'center', gap: '5px',
                       padding: '4px 6px',
-                      background: isItemSelected && selectedPart === 'all' ? '#2a4a6a' : 'transparent',
+                      background: isItemSelected && selectedPart === 'all' ? SELECTED_BG : 'transparent',
                       borderRadius: '3px', cursor: 'pointer',
-                      fontSize: '12px', color: isItemSelected ? '#e8e8e8' : '#aaa',
+                      fontSize: 'var(--font-size-label)', color: isItemSelected ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
                       userSelect: 'none',
                     }}
-                    onMouseEnter={e => { if (!(isItemSelected && selectedPart === 'all')) e.currentTarget.style.background = '#252525' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = isItemSelected && selectedPart === 'all' ? '#2a4a6a' : 'transparent' }}
+                    onMouseEnter={e => { if (!(isItemSelected && selectedPart === 'all')) e.currentTarget.style.background = 'var(--color-surface-raised)' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isItemSelected && selectedPart === 'all' ? SELECTED_BG : 'transparent' }}
                   >
                     {/* Collapse chevron — only shown when there are children */}
                     {hasChildren ? (
@@ -1004,13 +1012,13 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
                         style={{
                           display: 'flex', alignItems: 'center', gap: '5px',
                           padding: '3px 6px 3px 20px',
-                          background: isPartSel ? '#1f3d5c' : 'transparent',
+                          background: isPartSel ? SELECTED_PART_BG : 'transparent',
                           borderRadius: '3px', cursor: 'pointer',
-                          fontSize: '11px', color: isPartSel ? '#7bb8e8' : '#555',
+                          fontSize: 'var(--font-size-caption)', color: isPartSel ? 'var(--color-button)' : 'var(--color-text-secondary)',
                           userSelect: 'none',
                         }}
-                        onMouseEnter={e => { if (!isPartSel) e.currentTarget.style.background = '#1e1e1e' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = isPartSel ? '#1f3d5c' : 'transparent' }}
+                        onMouseEnter={e => { if (!isPartSel) e.currentTarget.style.background = 'var(--color-surface-raised)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = isPartSel ? SELECTED_PART_BG : 'transparent' }}
                       >
                         <svg viewBox="0 0 16 16" width="9" height="9" style={{ flexShrink: 0, opacity: 0.6 }}>
                           <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2" />
@@ -1027,7 +1035,7 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
             })}
           </div>
           {selectedId && (
-            <button onClick={onDeleteSelected} style={{ ...btnStyle, marginTop: '10px', background: '#8B0000' }}>
+            <button onClick={onDeleteSelected} style={{ ...btnStyle, marginTop: '10px', background: 'var(--color-error)' }}>
               🗑️ Delete Selected
             </button>
           )}
@@ -1039,10 +1047,10 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
 }
 
 const INP = {
-  background: '#111', border: '1px solid #2e2e2e', borderRadius: '3px',
-  color: '#ddd', padding: '3px 5px', fontSize: '11px',
+  background: 'var(--color-background)', border: '1px solid var(--color-border)', borderRadius: '3px',
+  color: 'var(--color-text-primary)', padding: '3px 5px', fontSize: 'var(--font-size-caption)',
   boxSizing: 'border-box', outline: 'none', width: '100%',
-  fontFamily: 'Arial, sans-serif',
+  fontFamily: 'var(--font-body)',
 }
 
 function XYZRow({ label, values, onChange, step = 0.01 }) {
@@ -1057,11 +1065,11 @@ function XYZRow({ label, values, onChange, step = 0.01 }) {
 
   return (
     <div style={{ marginBottom: '12px' }}>
-      <div style={{ fontSize: '10px', color: '#555', marginBottom: '4px', letterSpacing: '0.07em' }}>{label}</div>
+      <div style={{ fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-heading)', color: 'var(--color-text-secondary)', marginBottom: '4px', letterSpacing: '0.07em' }}>{label}</div>
       <div style={{ display: 'flex', gap: '4px' }}>
         {['X', 'Y', 'Z'].map((axis, i) => (
           <div key={axis} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px' }}>
-            <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>{axis}</span>
+            <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: 'var(--font-size-label)', fontWeight: 'bold', flexShrink: 0 }}>{axis}</span>
             <input type="number" step={step}
               value={drafts[i]}
               onChange={e => {
@@ -1099,7 +1107,7 @@ function ScaleRow({ objScale, scaleLocked, onUpdateScale, selectedId }) {
     <div style={{ display: 'flex', gap: '4px', marginBottom: '12px' }}>
       {['x', 'y', 'z'].map((axis, i) => (
         <div key={axis} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '3px' }}>
-          <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: '10px', fontWeight: 'bold', flexShrink: 0 }}>{axis.toUpperCase()}</span>
+          <span style={{ color: ['#e05252', '#52b352', '#5285e0'][i], fontSize: 'var(--font-size-label)', fontWeight: 'bold', flexShrink: 0 }}>{axis.toUpperCase()}</span>
           <input type="number" step="0.01" min="0.001"
             value={drafts[axis]}
             onChange={e => {
@@ -1201,37 +1209,37 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
   const tabBtn = (id, label) => (
     <button onClick={() => setTab(id)} style={{
       flex: 1, padding: '9px 2px', background: 'transparent', border: 'none',
-      borderBottom: tab === id ? '2px solid #4a9eff' : '2px solid transparent',
-      color: tab === id ? '#c8e0f4' : '#555',
-      cursor: 'pointer', fontSize: '10px', fontFamily: 'Arial, sans-serif', letterSpacing: '0.07em',
+      borderBottom: tab === id ? '2px solid var(--color-accent)' : '2px solid transparent',
+      color: tab === id ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+      cursor: 'pointer', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-heading)', letterSpacing: '0.07em',
     }}>{label}</button>
   )
 
   const lbl = (text) => (
-    <div style={{ fontSize: '10px', color: '#555', marginBottom: '4px', letterSpacing: '0.07em' }}>{text}</div>
+    <div style={{ fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-heading)', color: 'var(--color-text-secondary)', marginBottom: '4px', letterSpacing: '0.07em' }}>{text}</div>
   )
 
   const sliderRow = (text, value, min, max, onChange) => (
     <div style={{ marginBottom: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-        <span style={{ fontSize: '10px', color: '#555', letterSpacing: '0.07em' }}>{text}</span>
-        <span style={{ fontSize: '10px', color: '#777' }}>{value.toFixed(2)}</span>
+        <span style={{ fontSize: 'var(--font-size-label)', color: 'var(--color-text-secondary)', letterSpacing: '0.07em' }}>{text}</span>
+        <span style={{ fontSize: 'var(--font-size-label)', color: 'var(--color-text-secondary)' }}>{value.toFixed(2)}</span>
       </div>
       <input type="range" min={min} max={max} step="0.01" value={value}
         onChange={e => onChange(parseFloat(e.target.value))}
-        style={{ width: '100%', accentColor: '#4a9eff', height: '3px' }}
+        style={{ width: '100%', accentColor: 'var(--color-accent)', height: '3px' }}
       />
     </div>
   )
 
-  const divider = <div style={{ borderTop: '1px solid #222', margin: '12px 0' }} />
+  const divider = <div style={{ borderTop: '1px solid var(--color-border)', margin: '12px 0' }} />
 
   const noSel = (msg) => (
-    <div style={{ color: '#3a3a3a', fontSize: '12px', marginTop: '32px', textAlign: 'center' }}>{msg}</div>
+    <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-label)', marginTop: '32px', textAlign: 'center' }}>{msg}</div>
   )
 
   const partChip = isPartMode && (
-    <div style={{ fontSize: '11px', color: '#999', marginBottom: '10px', background: '#222', padding: '4px 8px', borderRadius: '3px' }}>
+    <div style={{ fontSize: 'var(--font-size-caption)', color: 'var(--color-text-secondary)', marginBottom: '10px', background: 'var(--color-surface-raised)', padding: '4px 8px', borderRadius: '3px' }}>
       {meshLists[selectedId]?.[partIdx]?.name || `Part ${partIdx + 1}`}
     </div>
   )
@@ -1239,11 +1247,11 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
   return (
     <div style={{
       position: 'absolute', right: 0, top: 0, width: '260px', height: '100vh',
-      background: '#1a1a1a', boxSizing: 'border-box', color: 'white',
-      fontFamily: 'Arial, sans-serif', overflowY: 'auto', zIndex: 100,
-      borderLeft: '1px solid #222',
+      background: 'var(--color-surface)', boxSizing: 'border-box', color: 'var(--color-text-primary)',
+      fontFamily: 'var(--font-body)', overflowY: 'auto', zIndex: 100,
+      borderLeft: '1px solid var(--color-border)',
     }}>
-      <div style={{ display: 'flex', borderBottom: '1px solid #222', background: '#161616' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--color-border)', background: 'var(--color-background)' }}>
         {tabBtn('material', 'MATERIAL')}
         {tabBtn('transform', 'TRANSFORM')}
         {tabBtn('environment', 'ENV')}
@@ -1265,23 +1273,23 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
                   return (
                     <div key={slot.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                       {(previewUrl ?? slot.thumbnail)
-                        ? <img src={previewUrl ?? slot.thumbnail} style={{ width: 38, height: 38, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid #2e2e2e' }} />
-                        : <div style={{ width: 38, height: 38, background: '#222', borderRadius: 3, flexShrink: 0, border: '1px solid #2e2e2e' }} />
+                        ? <img src={previewUrl ?? slot.thumbnail} style={{ width: 38, height: 38, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid var(--color-border)' }} />
+                        : <div style={{ width: 38, height: 38, background: 'var(--color-surface-raised)', borderRadius: 3, flexShrink: 0, border: '1px solid var(--color-border)' }} />
                       }
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '9px', color: '#555', letterSpacing: '0.07em' }}>{slot.label}</div>
+                        <div style={{ fontSize: 'var(--font-size-label)', color: 'var(--color-text-secondary)', letterSpacing: '0.07em' }}>{slot.label}</div>
                       </div>
                       {isBase && <>
                         <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                           onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
                         />
                         <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
-                          style={{ padding: '3px 7px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#777', cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}>
+                          style={{ padding: '3px 7px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', flexShrink: 0 }}>
                           {isUploadingTex ? '…' : '↑'}
                         </button>
                         {meshMat.textureUrl && (
                           <button onClick={() => handleMatChange({ textureUrl: null })}
-                            style={{ padding: '3px 6px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#555', cursor: 'pointer', fontSize: '10px', flexShrink: 0 }}>✕</button>
+                            style={{ padding: '3px 6px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', flexShrink: 0 }}>✕</button>
                         )}
                       </>}
                     </div>
@@ -1312,12 +1320,12 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
               />
               <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
                 <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
-                  style={{ flex: 1, padding: '5px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#aaa', cursor: 'pointer', fontSize: '11px' }}>
+                  style={{ flex: 1, padding: '5px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-caption)', fontFamily: 'var(--font-body)' }}>
                   {isUploadingTex ? 'Uploading…' : '↑ Upload image'}
                 </button>
                 {displayMat.textureUrl && (
                   <button onClick={() => handleMatChange({ textureUrl: null })}
-                    style={{ padding: '5px 10px', background: '#222', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#666', cursor: 'pointer', fontSize: '11px' }}>✕</button>
+                    style={{ padding: '5px 10px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-caption)' }}>✕</button>
                 )}
               </div>
               {displayMat.textureUrl && <>
@@ -1335,7 +1343,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
             <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '12px' }}>
               <input type="color" value={displayMat.color || '#cccccc'}
                 onChange={e => handleMatChange({ color: e.target.value })}
-                style={{ width: '32px', height: '26px', padding: '1px 2px', background: 'none', border: '1px solid #333', borderRadius: '3px', cursor: 'pointer', flexShrink: 0 }}
+                style={{ width: '32px', height: '26px', padding: '1px 2px', background: 'none', border: '1px solid var(--color-border)', borderRadius: '3px', cursor: 'pointer', flexShrink: 0 }}
               />
               <input type="text" value={displayMat.color || '#cccccc'}
                 onChange={e => handleMatChange({ color: e.target.value })}
@@ -1349,7 +1357,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
             {hasPartOverride && <>
               {divider}
               <button onClick={handleResetPart}
-                style={{ width: '100%', padding: '6px', background: '#1e1e1e', border: '1px solid #2e2e2e', borderRadius: '3px', color: '#666', cursor: 'pointer', fontSize: '10px', letterSpacing: '0.07em' }}>
+                style={{ width: '100%', padding: '6px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', letterSpacing: '0.07em' }}>
                 RESET TO ORIGINAL
               </button>
             </>}
@@ -1380,9 +1388,9 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
             />
             {divider}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <div style={{ fontSize: '10px', color: '#555', letterSpacing: '0.07em' }}>SCALE</div>
+              <div style={{ fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-heading)', color: 'var(--color-text-secondary)', letterSpacing: '0.07em' }}>SCALE</div>
               <button onClick={onToggleScaleLock} title={scaleLocked ? 'Uniform (click to free)' : 'Free (click to lock)'}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: scaleLocked ? '#4a9eff' : '#444', fontSize: '13px', padding: 0, lineHeight: 1 }}>
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: scaleLocked ? 'var(--color-button)' : 'var(--color-text-secondary)', fontSize: 'var(--font-size-label)', padding: 0, lineHeight: 1 }}>
                 {scaleLocked ? '🔗' : '⛓️'}
               </button>
             </div>
@@ -1739,7 +1747,7 @@ const updateScale = (instanceId, newScale) => {
     <div style={{
       width: '100vw', height: '100vh',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: '#111',
+      background: 'var(--color-background)',
     }}>
       <SignIn />
     </div>
@@ -1819,13 +1827,13 @@ const updateScale = (instanceId, newScale) => {
             right: '280px',
             zIndex: 200,
             padding: '8px 14px',
-            background: 'rgba(30,30,30,0.85)',
-            border: '1px solid #444',
+            background: 'color-mix(in srgb, var(--color-background) 85%, transparent)',
+            border: '1px solid var(--color-border)',
             borderRadius: '6px',
-            color: 'white',
+            color: 'var(--color-text-primary)',
             cursor: 'pointer',
-            fontSize: '13px',
-            fontFamily: 'Arial, sans-serif',
+            fontSize: 'var(--font-size-label)',
+            fontFamily: 'var(--font-body)',
             userSelect: 'none',
           }}
         >
@@ -1840,12 +1848,13 @@ const updateScale = (instanceId, newScale) => {
           left: '50%',
           transform: 'translate(-50%, -50%)',
           zIndex: 200,
-          background: 'rgba(0, 0, 0, 0.7)',
-          color: 'white',
+          background: 'color-mix(in srgb, var(--color-background) 70%, transparent)',
+          color: 'var(--color-text-primary)',
           padding: '20px 30px',
           borderRadius: '8px',
           textAlign: 'center',
-          fontSize: '14px',
+          fontSize: 'var(--font-size-body)',
+          fontFamily: 'var(--font-body)',
           lineHeight: '1.6',
           pointerEvents: 'none',
         }}>
@@ -1873,14 +1882,14 @@ const updateScale = (instanceId, newScale) => {
         {isDragOver && !isEmbed && (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 90,
-            border: '3px dashed #4a9eff',
-            background: 'rgba(74, 158, 255, 0.08)',
+            border: '3px dashed var(--color-accent)',
+            background: 'color-mix(in srgb, var(--color-accent) 8%, transparent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             pointerEvents: 'none',
           }}>
             <div style={{
-              color: '#4a9eff', fontSize: '18px', fontFamily: 'Arial, sans-serif',
-              background: 'rgba(0,0,0,0.65)', padding: '14px 24px', borderRadius: '8px',
+              color: 'var(--color-button)', fontSize: 'var(--font-size-body-lg)', fontFamily: 'var(--font-body)',
+              background: 'color-mix(in srgb, var(--color-background) 65%, transparent)', padding: '14px 24px', borderRadius: '8px',
             }}>
               Drop mesh to upload
             </div>
@@ -1890,13 +1899,13 @@ const updateScale = (instanceId, newScale) => {
         {isUploading && (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 250,
-            background: 'rgba(0,0,0,0.45)',
+            background: 'color-mix(in srgb, var(--color-background) 45%, transparent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             pointerEvents: 'none',
           }}>
             <div style={{
-              color: 'white', fontSize: '15px', fontFamily: 'Arial, sans-serif',
-              background: 'rgba(0,0,0,0.75)', padding: '14px 24px', borderRadius: '8px',
+              color: 'var(--color-text-primary)', fontSize: 'var(--font-size-body)', fontFamily: 'var(--font-body)',
+              background: 'color-mix(in srgb, var(--color-background) 75%, transparent)', padding: '14px 24px', borderRadius: '8px',
             }}>
               Uploading...
             </div>
@@ -1906,9 +1915,9 @@ const updateScale = (instanceId, newScale) => {
         {uploadError && (
           <div style={{
             position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
-            zIndex: 250, background: '#c0392b', color: 'white',
+            zIndex: 250, background: 'var(--color-error)', color: 'var(--color-text-primary)',
             padding: '10px 20px', borderRadius: '6px',
-            fontFamily: 'Arial, sans-serif', fontSize: '13px', whiteSpace: 'nowrap',
+            fontFamily: 'var(--font-body)', fontSize: 'var(--font-size-label)', whiteSpace: 'nowrap',
           }}>
             {uploadError}
           </div>
@@ -1918,9 +1927,10 @@ const updateScale = (instanceId, newScale) => {
           <div style={{
             position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)',
             zIndex: 250,
-            background: saveToast.startsWith('Save failed') ? '#c0392b' : '#1a5c2a',
-            color: 'white', padding: '10px 20px', borderRadius: '6px',
-            fontFamily: 'Arial, sans-serif', fontSize: '13px', whiteSpace: 'nowrap',
+            background: saveToast.startsWith('Save failed') ? 'var(--color-error)' : 'var(--color-success)',
+            color: saveToast.startsWith('Save failed') ? 'var(--color-text-primary)' : 'var(--color-button-text)',
+            padding: '10px 20px', borderRadius: '6px',
+            fontFamily: 'var(--font-body)', fontSize: 'var(--font-size-label)', whiteSpace: 'nowrap',
           }}>
             {saveToast}
           </div>
@@ -1930,7 +1940,7 @@ const updateScale = (instanceId, newScale) => {
         <div style={{
           position: 'absolute', top: '12px', right: '12px', zIndex: 100,
           display: 'flex', gap: '2px',
-          background: 'rgba(28,28,28,0.8)', padding: '3px', borderRadius: '6px',
+          background: 'color-mix(in srgb, var(--color-background) 80%, transparent)', padding: '3px', borderRadius: '6px',
           backdropFilter: 'blur(8px)',
         }}>
           {[
@@ -1951,10 +1961,10 @@ const updateScale = (instanceId, newScale) => {
           ].map(({ id, title, icon }) => (
             <button key={id} title={title} onClick={() => setRenderMode(id)} style={{
               width: '28px', height: '28px', padding: 0, cursor: 'pointer',
-              border: renderMode === id ? '1px solid rgba(255,255,255,0.35)' : '1px solid transparent',
+              border: renderMode === id ? '1px solid var(--color-text-secondary)' : '1px solid transparent',
               borderRadius: '4px',
-              background: renderMode === id ? 'rgba(100,100,100,0.9)' : 'transparent',
-              color: renderMode === id ? 'white' : 'rgba(160,160,160,0.85)',
+              background: renderMode === id ? 'var(--color-border)' : 'transparent',
+              color: renderMode === id ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>{icon}</button>
           ))}

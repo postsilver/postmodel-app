@@ -1,0 +1,68 @@
+/*
+ * Postmodel design tokens
+ * Source: Figma "Postmodel" design system (file 9EOcLGe7OCEMxtz8kUrcjc, page 55:12)
+ *
+ * Themes: dark is the default and the only theme in use for now.
+ * The light set is defined under [data-theme="light"] but nothing sets it yet
+ * (no toggle, no system switching).
+ */
+
+/* ── Theme-independent tokens ─────────────────────────────────────────── */
+:root {
+  /* Fonts */
+  --font-heading: 'Exo 2', system-ui, sans-serif;
+  --font-body: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale: 16px base, 1.2 ratio. Names follow the Figma text styles. */
+  --font-size-landing: 3rem;      /* 48px */
+  --font-size-h1: 2.5rem;         /* 40px */
+  --font-size-h2: 2.063rem;       /* 33px */
+  --font-size-h3: 1.75rem;        /* 28px */
+  --font-size-h4: 1.438rem;       /* 23px */
+  --font-size-body-lg: 1.188rem;  /* 19px */
+  --font-size-body: 1rem;         /* 16px */
+  --font-size-label: 0.813rem;    /* 13px */
+  --font-size-caption: 0.688rem;  /* 11px */
+  --line-height: 1.2;
+
+  /* Spacing: 4px set */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+}
+
+/* ── Dark theme (default) ─────────────────────────────────────────────── */
+:root,
+[data-theme='dark'] {
+  --color-background: #0C0D11;
+  --color-surface: #13151D;
+  --color-surface-raised: #24262D; /* not in Figma: Surface + 8% Text Primary */
+  --color-border: #2E3448;
+  --color-text-primary: #ECEAE4;
+  --color-text-secondary: #8B90A8;
+  --color-accent: #0D7EC5;
+  --color-button: #1EAEFF;
+  --color-button-text: #141414;
+  --color-success: #16A34A;
+  --color-error: #DC2626;
+}
+
+/* ── Light theme (defined, not active) ────────────────────────────────── */
+[data-theme='light'] {
+  --color-background: #F3F2EF;
+  --color-surface: #FFFFFF;
+  --color-surface-raised: #EDEDED; /* not in Figma: Surface + 7% Text Primary */
+  --color-border: #E4E3DF;
+  --color-text-primary: #141414;
+  --color-text-secondary: #5A5A5A;
+  --color-accent: #0D7EC5;
+  --color-button: #1EAEFF;
+  --color-button-text: #141414;
+  --color-success: #16A34A;
+  --color-error: #DC2626;
+}
