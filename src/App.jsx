@@ -7,6 +7,7 @@ import { upload } from '@vercel/blob/client'
 import { useAuth, useUser, SignIn, UserButton } from '@clerk/clerk-react'
 import ProjectDashboard from './components/ProjectDashboard.jsx'
 import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
+import ControlsHelp from './components/ControlsHelp.jsx'
 
 extend(THREE)
 
@@ -19,6 +20,48 @@ const SELECTED_BG = 'color-mix(in srgb, var(--color-accent) 35%, var(--color-sur
 const SELECTED_PART_BG = 'color-mix(in srgb, var(--color-accent) 25%, var(--color-surface))'
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1, glass: 0 }
+
+// True for fields where keys type text, so shortcuts must not fire there.
+// Sliders, colour pickers, checkboxes and buttons don't count.
+const TEXT_INPUT_TYPES = new Set(['text', 'number', 'search', 'url', 'email', 'password', 'tel', 'date', 'time', 'datetime-local', 'month', 'week'])
+function isTextEntry(el) {
+  if (!el) return false
+  if (el.isContentEditable) return true
+  if (el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true
+  return el.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((el.getAttribute('type') || 'text').toLowerCase())
+}
+
+// True when the main pointer is a finger (phones, tablets). Updates if that changes.
+function useCoarsePointer() {
+  const query = '(pointer: coarse)'
+  const [coarse, setCoarse] = useState(() => typeof window !== 'undefined' && window.matchMedia?.(query).matches)
+  useEffect(() => {
+    const mq = window.matchMedia?.(query)
+    if (!mq) return
+    const onChange = () => setCoarse(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return coarse
+}
+
+// Shared look for the floating viewport buttons (Walk/Orbit, Move)
+const FLOATING_BTN = {
+  padding: '8px 14px',
+  background: 'color-mix(in srgb, var(--color-background) 85%, transparent)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '6px',
+  color: 'var(--color-text-primary)',
+  cursor: 'pointer',
+  fontSize: 'var(--font-size-label)',
+  fontFamily: 'var(--font-body)',
+  userSelect: 'none',
+}
+
+// How far (px) a press must move before it counts as a drag rather than a click/tap.
+// Fingers wobble more than mice, so touch gets a bigger allowance.
+const DRAG_THRESHOLD_MOUSE = 5
+const DRAG_THRESHOLD_TOUCH = 10
 
 // Material fields that hold an uploaded texture URL, one per uploadable slot
 const TEXTURE_URL_KEYS = ['textureUrl', 'roughnessMapUrl', 'metalnessMapUrl', 'normalMapUrl']
@@ -175,7 +218,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef, onSelectScene, onPartNativeMaterial, uploadedTextureFlipY = true }) {
+function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, moveMode, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef, onSelectScene, onPartNativeMaterial, uploadedTextureFlipY = true }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -525,26 +568,71 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
     }
   }, [zMoveActive, isSelected, handleZDrag, onDragCommit, orbitRef])
 
-  const bind = useDrag(({ active, first, last, event }) => {
-    const partMesh = isSelected ? selectedMeshRef.current : null
+  // Object dragging — only bound in move mode on the selected object (see `canDrag`).
+  // A press doesn't count as a drag until it moves past the threshold, so taps and
+  // clicks never nudge the object. Vertical mode drags up/down instead of along the floor.
+  const dragState = useRef({ started: false, lastY: 0 })
+  const bind = useDrag(({ first, last, movement: [mx, my], event }) => {
+    const ds = dragState.current
     if (first) {
-      onDragStart()
-      onSelect()
-      if (event.ray) {
-        const intersect = new THREE.Vector3()
-        event.ray.intersectPlane(floorPlane, intersect)
-        if (partMesh) {
-          const worldPos = new THREE.Vector3()
-          partMesh.getWorldPosition(worldPos)
-          offset.current = [worldPos.x - intersect.x, worldPos.z - intersect.z]
-        } else {
-          offset.current = [
-            groupRef.current.position.x - intersect.x,
-            groupRef.current.position.z - intersect.z,
-          ]
-        }
+      ds.started = false
+      // Stop the camera from rotating while the selected object is being pressed
+      if (orbitRef?.current) orbitRef.current.enabled = false
+    }
+    if (!ds.started) {
+      const threshold = event.pointerType === 'touch' ? DRAG_THRESHOLD_TOUCH : DRAG_THRESHOLD_MOUSE
+      if (last || Math.hypot(mx, my) < threshold) {
+        if (last && orbitRef?.current) orbitRef.current.enabled = true // tap: nothing moved
+        return
+      }
+      ds.started = true
+      ds.lastY = event.clientY
+      if (zMoveActive) {
+        onDragCommit?.() // vertical drag updates state as it goes, so snapshot first
+        onDragStart()
+        return
+      }
+      startFloorDrag(event)
+    }
+    if (zMoveActive) {
+      handleZDrag((ds.lastY - event.clientY) * 0.01)
+      ds.lastY = event.clientY
+      if (last) {
+        onDragEnd()
+        ds.started = false
+        if (orbitRef?.current) orbitRef.current.enabled = true
+      }
+      return
+    }
+    floorDrag(event, last)
+    if (last) {
+      ds.started = false
+      if (orbitRef?.current) orbitRef.current.enabled = true
+    }
+  }, { pointerEvents: true })
+
+  // Floor-plane drag (the original drag behaviour), split into start and move/end
+  const startFloorDrag = (event) => {
+    const partMesh = isSelected ? selectedMeshRef.current : null
+    onDragStart()
+    if (event.ray) {
+      const intersect = new THREE.Vector3()
+      event.ray.intersectPlane(floorPlane, intersect)
+      if (partMesh) {
+        const worldPos = new THREE.Vector3()
+        partMesh.getWorldPosition(worldPos)
+        offset.current = [worldPos.x - intersect.x, worldPos.z - intersect.z]
+      } else {
+        offset.current = [
+          groupRef.current.position.x - intersect.x,
+          groupRef.current.position.z - intersect.z,
+        ]
       }
     }
+  }
+
+  const floorDrag = (event, last) => {
+    const partMesh = isSelected ? selectedMeshRef.current : null
     if (last) {
       onDragCommit?.()
       onDragEnd()
@@ -562,8 +650,9 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       } else {
         if (onPositionChange) onPositionChange([...pos.current])
       }
+      return
     }
-    if (active && event.ray) {
+    if (event.ray) {
       const intersect = new THREE.Vector3()
       event.ray.intersectPlane(floorPlane, intersect)
       if (partMesh) {
@@ -588,12 +677,33 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
         groupRef.current.position.set(...pos.current)
       }
     }
-  }, { pointerEvents: true })
+  }
+
+  // Click (no drag) selects. r3f's e.delta is the distance moved since pointer down.
+  const lastPointerTypeRef = useRef('mouse')
+  const canDrag = !isEmbed && moveMode && isSelected
+  const dragHandlers = canDrag ? bind() : {}
+  const groupHandlers = isEmbed ? {} : {
+    ...dragHandlers,
+    onPointerDown: (e) => {
+      lastPointerTypeRef.current = e.pointerType || 'mouse'
+      // Pressing the selected object in move mode: hold the camera still straight away.
+      // The drag handler re-enables it on release (tap or drag).
+      if (canDrag && e.button === 0 && orbitRef?.current) orbitRef.current.enabled = false
+      dragHandlers.onPointerDown?.(e)
+    },
+    onClick: (e) => {
+      const threshold = lastPointerTypeRef.current === 'touch' ? DRAG_THRESHOLD_TOUCH : DRAG_THRESHOLD_MOUSE
+      if (e.delta > threshold) return // that was a camera drag, not a click
+      e.stopPropagation() // select only the nearest object under the pointer
+      onSelect()
+    },
+  }
 
   if (!clonedScene) return null
 
   return (
-    <group ref={groupRef} position={position} {...(isEmbed || (zMoveActive && isSelected) ? {} : bind())}>
+    <group ref={groupRef} position={position} {...groupHandlers}>
       <primitive object={clonedScene} />
       {zMoveActive && isSelected && !isEmbed && (
         <YArrow orbitRef={orbitRef} baseY={arrowBase} onDragCommit={onDragCommit}
@@ -800,7 +910,7 @@ function FPSControls({ onLockChange }) {
   )
 }
 
-export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, onSelectScene, onPartNativeMaterial }) {
+export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, moveMode, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, onSelectScene, onPartNativeMaterial }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
   const orbitRef = useRef()
@@ -845,6 +955,7 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           onDragCommit,
           isEmbed: isEmbed || isFps,
           isSelected: selectedId === item.instanceId,
+          moveMode,
           zMoveActive,
           rotPanelActive,
           onUpdateRotation: onUpdateRotation ? (axis, deg) => onUpdateRotation(item.instanceId, axis, deg) : undefined,
@@ -1574,8 +1685,14 @@ function App() {
   const [meshLists, setMeshLists] = useState({})
   const [navMode, setNavMode] = useState('orbit')
   const [isPointerLocked, setIsPointerLocked] = useState(false)
-  const [zMoveActive, setZMoveActive] = useState(false)
+  const [moveMode, setMoveMode] = useState(false) // only in move mode can the selected object be dragged
+  const [zMoveActive, setZMoveActive] = useState(false) // vertical drag; only meaningful in move mode
   const [rotPanelActive, setRotPanelActive] = useState(false)
+  const isTouchDevice = useCoarsePointer()
+  const toggleMoveMode = () => {
+    if (moveMode) setZMoveActive(false) // leaving move mode also leaves vertical mode
+    setMoveMode(!moveMode)
+  }
   const [selectedPart, setSelectedPart] = useState('all')
   const [nativeMat, setNativeMat] = useState(null)
   const [envIntensity, setEnvIntensity] = useState(0.09)
@@ -1603,18 +1720,30 @@ function App() {
   useEffect(() => {
     if (isEmbed) return
     const onKeyDown = (e) => {
-      if (!e.ctrlKey && (e.key === 'z' || e.key === 'Z')) setZMoveActive(prev => !prev)
-      if (!e.ctrlKey && (e.key === 'r' || e.key === 'R') && selectedId) setRotPanelActive(prev => !prev)
-      if (e.ctrlKey && e.key === 'z') {
-        if (history.current.length > 0) {
-          setPlacedFurniture(history.current[history.current.length - 1])
-          history.current = history.current.slice(0, -1)
+      // Never steal keys while the user is typing (e.g. the colour hex field)
+      if (isTextEntry(e.target)) return
+      const key = e.key.toLowerCase()
+
+      // Ctrl+Z / Cmd+Z: undo only. Any other modifier combo is left to the browser.
+      if (e.ctrlKey || e.metaKey) {
+        if (key === 'z' && !e.shiftKey && !e.altKey) {
+          e.preventDefault()
+          if (history.current.length > 0) {
+            setPlacedFurniture(history.current[history.current.length - 1])
+            history.current = history.current.slice(0, -1)
+          }
         }
+        return
       }
+      if (e.altKey || e.repeat) return // holding a key shouldn't flicker a toggle
+
+      if (key === 'm') toggleMoveMode()
+      else if (key === 'z' && moveMode) setZMoveActive(prev => !prev)
+      else if (key === 'r' && selectedId) setRotPanelActive(prev => !prev)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isEmbed, selectedId])
+  }, [isEmbed, selectedId, moveMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setNativeMat(null)
@@ -1979,28 +2108,35 @@ const updateScale = (instanceId, newScale) => {
         />
       )}
 
-      {/* Floating nav toggle — bottom-right of viewport */}
+      {/* Floating buttons — bottom-right of viewport: Move (orbit mode only) + nav toggle */}
       {!isEmbed && (
-        <button
-          onClick={() => { setNavMode(navMode === 'orbit' ? 'fps' : 'orbit'); setIsPointerLocked(false) }}
-          style={{
-            position: 'absolute',
-            bottom: '20px',
-            right: '280px',
-            zIndex: 200,
-            padding: '8px 14px',
-            background: 'color-mix(in srgb, var(--color-background) 85%, transparent)',
-            border: '1px solid var(--color-border)',
-            borderRadius: '6px',
-            color: 'var(--color-text-primary)',
-            cursor: 'pointer',
-            fontSize: 'var(--font-size-label)',
-            fontFamily: 'var(--font-body)',
-            userSelect: 'none',
-          }}
-        >
-          {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
-        </button>
+        <div style={{ position: 'absolute', bottom: '20px', right: '280px', zIndex: 200, display: 'flex', gap: '8px' }}>
+          {navMode === 'orbit' && (
+            <button
+              type="button"
+              onClick={toggleMoveMode}
+              aria-pressed={moveMode}
+              title="Move mode (M)"
+              style={{
+                ...FLOATING_BTN,
+                ...(moveMode && {
+                  background: 'var(--color-button)',
+                  border: '1px solid var(--color-button)',
+                  color: 'var(--color-button-text)',
+                }),
+              }}
+            >
+              ✥ Move
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { setNavMode(navMode === 'orbit' ? 'fps' : 'orbit'); setIsPointerLocked(false) }}
+            style={FLOATING_BTN}
+          >
+            {navMode === 'orbit' ? '🚶 Walk' : '🔄 Orbit'}
+          </button>
+        </div>
       )}
 
       {!isEmbed && navMode === 'fps' && !isPointerLocked && (
@@ -2098,6 +2234,31 @@ const updateScale = (instanceId, newScale) => {
           </div>
         )}
 
+        {/* Move mode label — top centre. role=status so screen readers hear it change. */}
+        {!isEmbed && (
+          <div role="status" aria-live="polite" style={{
+            position: 'absolute', top: '12px', left: '50%', transform: 'translateX(-50%)',
+            zIndex: 100, pointerEvents: 'none',
+          }}>
+            {moveMode && navMode === 'orbit' && (
+              <div style={{
+                padding: '8px 14px', borderRadius: '6px',
+                background: 'var(--color-button)', color: 'var(--color-button-text)',
+                fontFamily: 'var(--font-body)', fontSize: 'var(--font-size-label)', fontWeight: 700,
+                whiteSpace: 'nowrap', boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+              }}>
+                {isTouchDevice ? 'Move mode on, tap Move to turn off' : 'Move mode on, press M to turn off'}
+                {zMoveActive && ' · Vertical'}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Controls help — bottom-left of the viewport (orbit mode only; walk mode has its own hint) */}
+        {!isEmbed && navMode === 'orbit' && (
+          <ControlsHelp style={{ left: '20px', bottom: '20px', zIndex: 150 }} />
+        )}
+
         {/* Viewport shading mode buttons (top-right, Blender-style) */}
         <div style={{
           position: 'absolute', top: '12px', right: '12px', zIndex: 100,
@@ -2146,13 +2307,14 @@ const updateScale = (instanceId, newScale) => {
             renderer.shadowMap.type = THREE.PCFShadowMap
             return renderer
           }}
-          onPointerDown={e => { canvasPointerDown.current = { x: e.clientX, y: e.clientY } }}
+          onPointerDown={e => { canvasPointerDown.current = { x: e.clientX, y: e.clientY, type: e.pointerType } }}
           onPointerMissed={e => {
             const down = canvasPointerDown.current
             if (!down) return
             const dx = e.clientX - down.x
             const dy = e.clientY - down.y
-            if (Math.sqrt(dx * dx + dy * dy) < 5) setSelectedId(null)
+            const threshold = down.type === 'touch' ? DRAG_THRESHOLD_TOUCH : DRAG_THRESHOLD_MOUSE
+            if (Math.sqrt(dx * dx + dy * dy) < threshold) setSelectedId(null)
           }}
         >
           <SSGIPostProcessing mode={renderMode} selectedScene={selectedScene} />
@@ -2169,6 +2331,7 @@ const updateScale = (instanceId, newScale) => {
               isEmbed={isEmbed}
               navMode={navMode}
               onPointerLockChange={setIsPointerLocked}
+              moveMode={moveMode}
               zMoveActive={zMoveActive}
               onDragCommit={commitHistory}
               envIntensity={envIntensity}
