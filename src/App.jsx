@@ -10,6 +10,7 @@ import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
 import ControlsHelp from './components/ControlsHelp.jsx'
 import TooltipButton from './components/TooltipButton.jsx'
 import { IS_MAC, isModKey, MAC_KEYS } from './utils/platform.js'
+import UploadProgress from './components/UploadProgress.jsx'
 
 extend(THREE)
 
@@ -45,6 +46,44 @@ function useCoarsePointer() {
     return () => mq.removeEventListener('change', onChange)
   }, [])
   return coarse
+}
+
+// Plain-language reason for a failed mesh upload, and whether "Try again" makes sense.
+// Error classes come from @vercel/blob; network failures surface as TypeErrors.
+function describeUploadError(err) {
+  const kind = err?.constructor?.name || err?.name || ''
+  const msg = String(err?.message || '')
+  if (msg.includes('storage_limit_exceeded')) {
+    return { retryable: false, message: "You've used all your storage (100 MB on the free plan). Delete some uploads or upgrade your plan to add more." }
+  }
+  if (kind === 'BlobFileTooLargeError' || /too large|exceeds the maximum/i.test(msg)) {
+    return { retryable: false, message: 'This file is too big. The limit is 200 MB per file.' }
+  }
+  if (kind === 'BlobContentTypeNotAllowedError' || /content type/i.test(msg)) {
+    return { retryable: false, message: "This kind of file can't be uploaded." }
+  }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { retryable: true, message: "You're offline. Check your internet connection, then try again." }
+  }
+  if (kind === 'BlobRequestAbortedError' || /abort/i.test(msg)) {
+    return { retryable: true, message: 'The upload was interrupted before it finished.' }
+  }
+  if (err instanceof TypeError || /failed to fetch|network|load failed|connection/i.test(msg)) {
+    return { retryable: true, message: 'The connection dropped during the upload. Check your internet, then try again.' }
+  }
+  if (kind === 'BlobClientTokenExpiredError' || /expired/i.test(msg)) {
+    return { retryable: true, message: 'The upload took too long and its permission expired.' }
+  }
+  if (/client token/i.test(msg)) {
+    return { retryable: true, message: "The server couldn't start the upload. If this keeps happening, the server may need attention." }
+  }
+  if (/rate limit|too many/i.test(msg)) {
+    return { retryable: true, message: 'Too many uploads at once. Wait a moment, then try again.' }
+  }
+  if (kind === 'BlobStoreSuspendedError' || kind === 'BlobStoreNotFoundError' || /unavailable|suspended/i.test(msg)) {
+    return { retryable: true, message: 'File storage is unavailable right now. Try again in a few minutes.' }
+  }
+  return { retryable: true, message: msg ? `Something went wrong (${msg.replace(/^Vercel Blob:\s*/i, '')}).` : 'Something went wrong.' }
 }
 
 // A press that should pan the camera rather than grab an object: any button but the
@@ -1856,7 +1895,8 @@ function App() {
   const [pointLightIntensity, setPointLightIntensity] = useState(1.0)
   const [renderMode, setRenderMode] = useState('rendered')
   const [selectedScene, setSelectedScene] = useState(null)
-  const [isUploading, setIsUploading] = useState(false)
+  const [uploads, setUploads] = useState([]) // mesh uploads in progress / just finished / failed (see UploadProgress)
+  const uploadFilesRef = useRef(new Map())   // upload id -> File, kept for "Try again"
   const [uploadError, setUploadError] = useState(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [scaleLocked, setScaleLocked] = useState(true)
@@ -2053,7 +2093,8 @@ const updateScale = (instanceId, newScale) => {
     ))
   }
 
-  const handleMeshUpload = async (file) => {
+  // retryId: when retrying a failed upload, reuse its card instead of adding a new one
+  const handleMeshUpload = async (file, retryId = null) => {
     const ext = file.name.split('.').pop().toLowerCase()
     const supported = ['glb', 'gltf', 'obj', 'stl', 'fbx', 'stp', 'step']
     if (!supported.includes(ext)) {
@@ -2063,8 +2104,15 @@ const updateScale = (instanceId, newScale) => {
     }
     const capturedOffset = spawnOffset
     setSpawnOffset(prev => (prev + 1) % 10)
-    setIsUploading(true)
     setUploadError(null)
+
+    // Progress card: appears immediately, before any network call
+    const id = retryId ?? `up-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    uploadFilesRef.current.set(id, file)
+    const fresh = { id, name: file.name, size: file.size, loaded: 0, pct: 0, status: 'preparing', error: null, retryable: false, startedAt: Date.now() }
+    setUploads(prev => retryId ? prev.map(u => (u.id === id ? fresh : u)) : [...prev, fresh])
+    const patchUpload = (patch) => setUploads(prev => prev.map(u => (u.id === id ? { ...u, ...patch } : u)))
+
     try {
       // Pre-flight: check quota before handing off to Vercel Blob client
       const tokenCheck = await fetch('/api/upload', {
@@ -2079,10 +2127,18 @@ const updateScale = (instanceId, newScale) => {
         }
       }
 
+      patchUpload({ status: 'uploading' })
+      let lastPct = -1
       const blob = await upload(file.name, file, {
         access: 'public',
         handleUploadUrl: '/api/upload',
         clientPayload: JSON.stringify({ userId: userId || '', fileSize: file.size }),
+        onUploadProgress: ({ loaded, percentage }) => {
+          const pct = Math.floor(percentage)
+          if (pct === lastPct) return // at most one re-render per percent
+          lastPct = pct
+          patchUpload({ loaded, pct, status: pct >= 100 ? 'finishing' : 'uploading' })
+        },
       })
       const url = blob.url
       sessionBlobsRef.current.add(url) // track for session cleanup on page close
@@ -2110,16 +2166,25 @@ const updateScale = (instanceId, newScale) => {
       }
       saveHistory(placedFurniture)
       setPlacedFurniture(prev => [...prev, newItem])
+
+      // Show "Uploaded" briefly, then remove the card
+      patchUpload({ status: 'done', pct: 100, loaded: file.size })
+      uploadFilesRef.current.delete(id)
+      setTimeout(() => setUploads(prev => prev.filter(u => u.id !== id || u.status !== 'done')), 2500)
     } catch (err) {
-      if (err.message?.includes('storage_limit_exceeded')) {
-        setUploadError('Storage limit reached (100MB on free plan). Upgrade your plan to upload more.')
-      } else {
-        setUploadError(err.message || 'Upload failed')
-      }
-      setTimeout(() => setUploadError(null), 7000)
-    } finally {
-      setIsUploading(false)
+      console.error('Mesh upload failed:', err)
+      const { message, retryable } = describeUploadError(err)
+      patchUpload({ status: 'error', error: message, retryable })
     }
+  }
+
+  const retryUpload = (id) => {
+    const file = uploadFilesRef.current.get(id)
+    if (file) handleMeshUpload(file, id)
+  }
+  const dismissUpload = (id) => {
+    uploadFilesRef.current.delete(id)
+    setUploads(prev => prev.filter(u => u.id !== id))
   }
 
   const handleNewProject = () => {
@@ -2357,21 +2422,9 @@ const updateScale = (instanceId, newScale) => {
           </div>
         )}
 
-        {isUploading && (
-          <div style={{
-            position: 'absolute', inset: 0, zIndex: 250,
-            background: 'color-mix(in srgb, var(--color-background) 45%, transparent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            pointerEvents: 'none',
-          }}>
-            <div style={{
-              color: 'var(--color-text-primary)', fontSize: 'var(--font-size-body)', fontFamily: 'var(--font-body)',
-              background: 'color-mix(in srgb, var(--color-background) 75%, transparent)', padding: '14px 24px', borderRadius: '8px',
-            }}>
-              Uploading...
-            </div>
-          </div>
-        )}
+        {/* Mesh upload progress — small cards top-left; the editor stays usable */}
+        <UploadProgress uploads={uploads} onRetry={retryUpload} onDismiss={dismissUpload}
+          style={{ top: '12px', left: '12px', zIndex: 120 }} />
 
         {uploadError && (
           <div style={{
