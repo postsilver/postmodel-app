@@ -923,6 +923,8 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
 
   const handleCopy = () => {
     navigator.clipboard.writeText(getIframeCode()).then(() => {
+      // The embed points at these uploads; keep them past tab close (same as Share link)
+      onBlobsProtected?.(placedFurniture)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
@@ -1013,6 +1015,7 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
               </div>
             </div>
             <textarea readOnly value={getIframeCode()} rows={6}
+              onCopy={() => onBlobsProtected?.(placedFurniture)}
               style={{ width: '100%', marginTop: '8px', padding: '8px', background: 'var(--color-background)', color: 'var(--color-button)', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: 'var(--font-size-caption)', fontFamily: 'monospace', resize: 'vertical', boxSizing: 'border-box' }} />
             <button onClick={handleCopy}
               style={{ marginTop: '6px', padding: '8px', background: copied ? 'var(--color-success)' : 'var(--color-surface-raised)', border: 'none', borderRadius: '4px', color: copied ? 'var(--color-button-text)' : 'var(--color-text-primary)', cursor: 'pointer', width: '100%', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)' }}>
