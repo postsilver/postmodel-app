@@ -9,6 +9,7 @@ import ProjectDashboard from './components/ProjectDashboard.jsx'
 import SSGIPostProcessing from './components/SSGIPostProcessing.jsx'
 import ControlsHelp from './components/ControlsHelp.jsx'
 import TooltipButton from './components/TooltipButton.jsx'
+import { IS_MAC, isModKey, MAC_KEYS } from './utils/platform.js'
 
 extend(THREE)
 
@@ -44,6 +45,14 @@ function useCoarsePointer() {
     return () => mq.removeEventListener('change', onChange)
   }, [])
   return coarse
+}
+
+// A press that should pan the camera rather than grab an object: any button but the
+// primary one, or the primary button with Ctrl/Cmd/Shift (OrbitControls pans on these;
+// on a Mac, Ctrl-click is also the right click).
+function isPanGesture(e) {
+  const ev = e?.nativeEvent ?? e
+  return (ev?.button ?? 0) !== 0 || !!(ev?.ctrlKey || ev?.metaKey || ev?.shiftKey)
 }
 
 // Shared look for the floating viewport buttons (Walk/Orbit, Move)
@@ -588,9 +597,16 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
   // Object dragging — only bound in move mode on the selected object (see `canDrag`).
   // A press doesn't count as a drag until it moves past the threshold, so taps and
   // clicks never nudge the object. Vertical mode drags up/down instead of along the floor.
-  const dragState = useRef({ started: false, lastY: 0 })
+  const dragState = useRef({ started: false, lastY: 0, skip: false })
   const bind = useDrag(({ first, last, movement: [mx, my], event }) => {
     const ds = dragState.current
+    // Ctrl/Cmd/Shift + drag (and Mac Ctrl-click, i.e. right click) pans the camera,
+    // even on the selected object in move mode, so leave those to OrbitControls.
+    if (first) ds.skip = isPanGesture(event)
+    if (ds.skip) {
+      if (last) ds.skip = false
+      return
+    }
     if (first) {
       ds.started = false
       // Stop the camera from rotating while the selected object is being pressed
@@ -706,10 +722,11 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
       lastPointerTypeRef.current = e.pointerType || 'mouse'
       // Pressing the selected object in move mode: hold the camera still straight away.
       // The drag handler re-enables it on release (tap or drag).
-      if (canDrag && e.button === 0 && orbitRef?.current) orbitRef.current.enabled = false
+      if (canDrag && !isPanGesture(e) && orbitRef?.current) orbitRef.current.enabled = false
       dragHandlers.onPointerDown?.(e)
     },
     onClick: (e) => {
+      if (IS_MAC && (e.nativeEvent?.ctrlKey ?? e.ctrlKey)) return // Ctrl-click on a Mac is a right click
       const threshold = lastPointerTypeRef.current === 'touch' ? DRAG_THRESHOLD_TOUCH : DRAG_THRESHOLD_MOUSE
       if (e.delta > threshold) return // that was a camera drag, not a click
       e.stopPropagation() // select only the nearest object under the pointer
@@ -927,6 +944,90 @@ function FPSControls({ onLockChange }) {
   )
 }
 
+// Smooth wheel / trackpad zoom for OrbitControls.
+// OrbitControls applies each wheel event as one zoom step, so trackpads and
+// accelerated Mac mice jump. This catches wheel events before OrbitControls does,
+// adds them to a pending amount, and feeds that back to OrbitControls in small
+// eased steps each frame (same total zoom, spread over a few frames).
+// It also handles Safari's trackpad pinch, which arrives as gesture events
+// (other browsers send pinch as Ctrl+wheel).
+const ZOOM_PX_PER_LOG_SCALE = 1 / (0.01 * Math.log(1 / 0.95)) // OrbitControls: scale = 0.95^(|deltaY|/100)
+const ZOOM_MAX_EVENT = 250   // cap one wheel event (momentum spikes)
+const ZOOM_MAX_PENDING = 1200
+const ZOOM_EASE = 15         // higher = catches up faster (per second)
+function SmoothZoom({ controlsRef }) {
+  const pending = useRef(0)
+  const lastPoint = useRef({ x: 0, y: 0 })
+  const ours = useRef(new WeakSet()) // synthetic events we dispatch ourselves
+
+  useEffect(() => {
+    const controls = controlsRef.current
+    const el = controls?.domElement
+    const parent = el?.parentElement
+    if (!controls || !el || !parent) return
+    let ctrlHeld = false   // a real Ctrl key, as opposed to a pinch reported as Ctrl+wheel
+    let gesturing = false  // Safari pinch in progress
+    let lastScale = 1
+    const clamp = (v, m) => Math.max(-m, Math.min(m, v))
+
+    const onKey = (e) => { if (e.key === 'Control') ctrlHeld = e.type === 'keydown' }
+    const onWheel = (e) => {
+      if (ours.current.has(e) || !el.contains(e.target)) return
+      if (!controls.enabled || !controls.enableZoom) return
+      e.preventDefault()   // no page scroll / browser zoom
+      e.stopPropagation()  // OrbitControls gets our smoothed events instead
+      if (gesturing && e.ctrlKey) return // Safari pinch is handled by the gesture events
+      let dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1)
+      if (e.ctrlKey && !ctrlHeld) dy *= 10 // trackpad pinch: same boost OrbitControls uses
+      pending.current = clamp(pending.current + clamp(dy, ZOOM_MAX_EVENT), ZOOM_MAX_PENDING)
+      lastPoint.current = { x: e.clientX, y: e.clientY }
+    }
+    const onGestureStart = (e) => { e.preventDefault(); gesturing = true; lastScale = 1 }
+    const onGestureChange = (e) => {
+      e.preventDefault()
+      if (!controls.enabled || !controls.enableZoom || !(e.scale > 0)) return
+      // Pinch out (scale up) = zoom in = negative deltaY, matched exactly to the pinch ratio
+      pending.current = clamp(pending.current - Math.log(e.scale / lastScale) * ZOOM_PX_PER_LOG_SCALE, ZOOM_MAX_PENDING)
+      lastScale = e.scale
+      lastPoint.current = { x: e.clientX, y: e.clientY }
+    }
+    const onGestureEnd = (e) => { e.preventDefault(); gesturing = false }
+
+    parent.addEventListener('wheel', onWheel, { capture: true, passive: false })
+    el.addEventListener('gesturestart', onGestureStart)
+    el.addEventListener('gesturechange', onGestureChange)
+    el.addEventListener('gestureend', onGestureEnd)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKey)
+    return () => {
+      parent.removeEventListener('wheel', onWheel, { capture: true })
+      el.removeEventListener('gesturestart', onGestureStart)
+      el.removeEventListener('gesturechange', onGestureChange)
+      el.removeEventListener('gestureend', onGestureEnd)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKey)
+    }
+  }, [controlsRef])
+
+  useFrame((_, dt) => {
+    const p = pending.current
+    if (p === 0) return
+    const el = controlsRef.current?.domElement
+    if (!el) return
+    let step = p * (1 - Math.exp(-ZOOM_EASE * Math.min(dt, 0.1)))
+    if (Math.abs(p) < 0.5) step = p // finish off the remainder
+    pending.current = p - step
+    const ev = new WheelEvent('wheel', {
+      deltaY: step, deltaMode: 0, clientX: lastPoint.current.x, clientY: lastPoint.current.y,
+      bubbles: true, cancelable: true,
+    })
+    ours.current.add(ev)
+    el.dispatchEvent(ev)
+  })
+
+  return null
+}
+
 export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, setIsDragging, onMeshListUpdate, onUpdatePosition, isEmbed, navMode, onPointerLockChange, moveMode, zMoveActive, onDragCommit, envIntensity, pointLightIntensity, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, onSelectScene, onPartNativeMaterial }) {
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   const isFps = navMode === 'fps'
@@ -996,7 +1097,10 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
 
       {isFps
         ? <FPSControls onLockChange={onPointerLockChange} />
-        : <OrbitControls makeDefault enabled={!isDragging} ref={orbitRef} />
+        : <>
+            <OrbitControls makeDefault enabled={!isDragging} ref={orbitRef} />
+            <SmoothZoom controlsRef={orbitRef} />
+          </>
       }
 
     </>
@@ -1777,9 +1881,10 @@ function App() {
       if (isTextEntry(e.target)) return
       const key = e.key.toLowerCase()
 
-      // Ctrl+Z / Cmd+Z: undo only. Any other modifier combo is left to the browser.
+      // Undo: Cmd+Z on Mac, Ctrl+Z elsewhere. Any other Ctrl/Cmd combo (including
+      // Ctrl+Z on a Mac) is left to the browser and never toggles a mode.
       if (e.ctrlKey || e.metaKey) {
-        if (key === 'z' && !e.shiftKey && !e.altKey) {
+        if (isModKey(e) && key === 'z' && !e.shiftKey && !e.altKey) {
           e.preventDefault()
           if (history.current.length > 0) {
             setPlacedFurniture(history.current[history.current.length - 1])
@@ -2185,7 +2290,9 @@ const updateScale = (instanceId, newScale) => {
           <TooltipButton
             tooltip={navMode === 'orbit'
               ? 'Walk mode: explore at eye level. Click the view to look around, WASD to move, Esc to stop.'
-              : 'Back to orbit camera: drag to rotate, right-drag to pan, scroll to zoom.'}
+              : IS_MAC
+                ? `Back to orbit camera: drag to rotate, ${MAC_KEYS.ctrl} or ${MAC_KEYS.shift} + drag to pan, two-finger scroll or pinch to zoom.`
+                : 'Back to orbit camera: drag to rotate, right-drag or Shift + drag to pan, scroll to zoom.'}
             aria-label={navMode === 'orbit' ? 'Walk mode' : 'Orbit mode'}
             onClick={() => { setNavMode(navMode === 'orbit' ? 'fps' : 'orbit'); setIsPointerLocked(false) }}
             style={FLOATING_BTN}

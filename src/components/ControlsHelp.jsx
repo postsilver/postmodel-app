@@ -7,6 +7,24 @@ import keyM from '../assets/controls/key-m.svg'
 import keyZ from '../assets/controls/key-z.svg'
 import keyR from '../assets/controls/key-r.svg'
 import { POPOVER_SURFACE } from '../styles/popover.js'
+import { IS_MAC, MAC_KEYS } from '../utils/platform.js'
+
+// Navigation lines: Mac wording uses Mac key symbols and trackpad gestures.
+// Shift + drag pans on every platform (and Ctrl-click is right click on a Mac).
+// `panSr` spells the symbols out for screen readers.
+const NAV_TEXT = IS_MAC
+  ? {
+      rotate: 'Click + Drag = Rotate camera',
+      pan: `Right-click, ${MAC_KEYS.ctrl} or ${MAC_KEYS.shift} + Drag = Pan camera`,
+      panSr: 'Right-click, Control-click, or Shift plus drag = Pan camera',
+      zoom: 'Two-finger scroll or pinch = Zoom in/out',
+    }
+  : {
+      rotate: 'Left Click + Drag = Rotate camera',
+      pan: 'Right Click (or Shift) + Drag = Pan camera',
+      panSr: null,
+      zoom: 'Scroll Wheel = Zoom in/out',
+    }
 
 // Controls help: a "Controls" button in the viewport that opens the Postmodel
 // controls panel (Figma node 67:480) on hover, keyboard focus, or tap.
@@ -61,11 +79,17 @@ const rowText = {
   lineHeight: '24px', color: 'var(--color-text-primary)', whiteSpace: 'nowrap',
 }
 
-function Row({ icon, srPrefix, children }) {
+// srPrefix: read before the visible text (e.g. "M key: ").
+// srText: read instead of the visible text (e.g. to spell out ⌃ ⇧ symbols).
+function Row({ icon, srPrefix, srText, children }) {
   return (
     <li style={rowStyle}>
       {icon}
-      <span style={rowText}>{srPrefix && <span style={srOnly}>{srPrefix}</span>}{children}</span>
+      <span style={rowText}>
+        {srPrefix && <span style={srOnly}>{srPrefix}</span>}
+        {srText && <span style={srOnly}>{srText}</span>}
+        <span aria-hidden={srText ? true : undefined}>{children}</span>
+      </span>
     </li>
   )
 }
@@ -82,9 +106,9 @@ function ControlsPanel({ id, hidden }) {
         <h2 style={{ ...headingStyle, height: 29 }}>Navigation</h2>
         <div aria-hidden="true" style={headingLine} />
         <ul style={{ ...listStyle, marginTop: 1 }}>
-          <Row icon={<IconBox><MaskIcon src={mouseIcon} width={14} height={20} /></IconBox>}>Left Click + Drag = Rotate camera</Row>
-          <Row icon={<IconBox><MaskIcon src={mouseIcon} width={14} height={20} /></IconBox>}>Right Click + Drag = Pan camera</Row>
-          <Row icon={<IconBox><MaskIcon src={scrollIcon} width={17.5} height={21.5} /></IconBox>}>Scroll Wheel = Zoom in/out</Row>
+          <Row icon={<IconBox><MaskIcon src={mouseIcon} width={14} height={20} /></IconBox>}>{NAV_TEXT.rotate}</Row>
+          <Row icon={<IconBox><MaskIcon src={mouseIcon} width={14} height={20} /></IconBox>} srText={NAV_TEXT.panSr}>{NAV_TEXT.pan}</Row>
+          <Row icon={<IconBox><MaskIcon src={scrollIcon} width={17.5} height={21.5} /></IconBox>}>{NAV_TEXT.zoom}</Row>
         </ul>
         <h2 style={{ ...headingStyle, height: 28, marginTop: 6 }}>Object Interaction</h2>
         <div aria-hidden="true" style={headingLine} />
