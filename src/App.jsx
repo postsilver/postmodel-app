@@ -1945,6 +1945,8 @@ const updateScale = (instanceId, newScale) => {
             furniture.forEach(item => {
               if (item.file) sessionBlobsRef.current.delete(item.file)
               if (item.sourceUrl) sessionBlobsRef.current.delete(item.sourceUrl)
+              // Uploaded textures are part of the shared scene too; keep them past tab close
+              materialTextureUrls(item.material).forEach(url => sessionBlobsRef.current.delete(url))
             })
           }}
         />
