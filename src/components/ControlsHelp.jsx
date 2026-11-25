@@ -32,10 +32,14 @@ const NAV_TEXT = IS_MAC
 // Shows an SVG file unchanged, coloured from a token via CSS mask
 // (the Figma exports are white; this lets them follow tokens.css).
 function MaskIcon({ src, width, height, color = 'var(--color-text-primary)', style }) {
+  // Quoted: in the build, Vite inlines small SVGs as data: URLs that contain
+  // quote characters, which make an unquoted url() invalid (the mask is dropped
+  // and the box shows as a solid square).
+  const mask = `url(${JSON.stringify(src)})`
   return (
     <span aria-hidden="true" style={{
       display: 'block', width, height, flexShrink: 0, backgroundColor: color,
-      WebkitMaskImage: `url(${src})`, maskImage: `url(${src})`,
+      WebkitMaskImage: mask, maskImage: mask,
       WebkitMaskSize: '100% 100%', maskSize: '100% 100%',
       WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
       ...style,
