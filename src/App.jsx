@@ -20,10 +20,41 @@ const SELECTED_PART_BG = 'color-mix(in srgb, var(--color-accent) 25%, var(--colo
 
 const DEFAULT_MATERIAL = { color: '#cccccc', roughness: 0.5, metalness: 0, textureUrl: null, textureScale: 1, glass: 0 }
 
+// Material fields that hold an uploaded texture URL, one per uploadable slot
+const TEXTURE_URL_KEYS = ['textureUrl', 'roughnessMapUrl', 'metalnessMapUrl', 'normalMapUrl']
+
+// The texture slots shown in part mode. `field` is where an upload is stored;
+// slots without a field (EMISSIVE, AO) are display-only.
+const TEXTURE_SLOTS = {
+  'BASE COLOR': { field: 'textureUrl',      name: 'base color' },
+  'ROUGHNESS':  { field: 'roughnessMapUrl', name: 'roughness' },
+  'METALNESS':  { field: 'metalnessMapUrl', name: 'metalness' },
+  'NORMAL':     { field: 'normalMapUrl',    name: 'normal' },
+}
+
+// Upload icon from the Postmodel Figma file (node 71:489, material-symbols:upload).
+// Uses currentColor so the button sets it from tokens (Button colour on Surface).
+function UploadIcon({ size = 16 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
+      <path fill="currentColor" d="M7 12V3.85L4.4 6.45L3 5L8 0L13 5L11.6 6.45L9 3.85V12H7ZM2 16C1.45 16 0.979333 15.8043 0.588 15.413C0.196666 15.0217 0.000666667 14.5507 0 14V11H2V14H14V11H16V14C16 14.55 15.8043 15.021 15.413 15.413C15.0217 15.805 14.5507 16.0007 14 16H2Z" />
+    </svg>
+  )
+}
+
+// All uploaded texture URLs in a material, including per-part overrides
+function materialTextureUrls(material) {
+  if (!material) return []
+  const own = m => TEXTURE_URL_KEYS.map(k => m?.[k]).filter(Boolean)
+  return [...own(material), ...Object.values(material.meshMaterials || {}).flatMap(own)]
+}
+
 function nullBlobTextureUrls(mat) {
   if (!mat || typeof mat !== 'object') return mat
   const result = { ...mat }
-  if (result.textureUrl?.startsWith('blob:')) result.textureUrl = null
+  for (const key of TEXTURE_URL_KEYS) {
+    if (result[key]?.startsWith('blob:')) result[key] = null
+  }
   if (result.meshMaterials) {
     const mm = {}
     for (const [k, v] of Object.entries(result.meshMaterials)) {
@@ -144,7 +175,7 @@ function YArrow({ onDrag, orbitRef, baseY, onDragCommit, counterScale = 1 }) {
   )
 }
 
-function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef, onSelectScene, onPartNativeMaterial }) {
+function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransforms, floorPlane, onDragStart, onDragEnd, onSelect, materialSettings, onMeshListUpdate, onPositionChange, onDragCommit, isEmbed, isSelected, zMoveActive, rotPanelActive, onUpdateRotation, onUpdatePartTransform, selectedPart, orbitRef, onSelectScene, onPartNativeMaterial, uploadedTextureFlipY = true }) {
   const groupRef = useRef()
   const pos = useRef(position)
   const offset = useRef([0, 0])
@@ -280,10 +311,13 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
         const meshMaterials = materialSettings.meshMaterials || {}
         const perMesh = meshMaterials[meshIndex]
         const settings = perMesh || materialSettings
+        // Part overrides only contain fields the user changed; whole-object
+        // materials start as a copy of DEFAULT_MATERIAL.
+        const isUserSet = (value, def) => value !== undefined && (!!perMesh || value !== def)
 
         // No user override if settings match defaults and no per-mesh entry —
         // restore the original GLB/file material (preserves embedded textures)
-        const hasOverride = settings.textureUrl ||
+        const hasOverride = TEXTURE_URL_KEYS.some(k => settings[k]) ||
           (settings.color && settings.color !== DEFAULT_MATERIAL.color) ||
           (settings.roughness !== undefined && settings.roughness !== DEFAULT_MATERIAL.roughness) ||
           (settings.metalness !== undefined && settings.metalness !== DEFAULT_MATERIAL.metalness) ||
@@ -296,24 +330,62 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
           return
         }
 
-        let texture = null
+        const origSrc = origMaterialsRef.current?.[meshIndex]
+        const orig = Array.isArray(origSrc) ? origSrc[0] : origSrc
+
+        // flipY for uploaded maps: match the part's own textures if it has any,
+        // otherwise use the format default (false for glTF, loader default elsewhere)
+        const origTex = orig && ['map', 'roughnessMap', 'metalnessMap', 'normalMap', 'emissiveMap', 'aoMap']
+          .map(k => orig[k]).find(Boolean)
+        const uploadFlipY = origTex ? origTex.flipY : uploadedTextureFlipY
+
         let pendingMatRef = null
-        if (settings.textureUrl) {
-          const loader = new THREE.TextureLoader()
-          texture = loader.load(settings.textureUrl, (tex) => {
-            tex.needsUpdate = true
+        // All uploaded maps share wrap, repeat and flipY so they line up with each
+        // other and with the model's UVs. Only Base Color is sRGB; data maps stay linear.
+        const loadUploadedTexture = (url, isColor) => {
+          const tex = new THREE.TextureLoader().load(url, (t) => {
+            t.needsUpdate = true
             if (pendingMatRef) pendingMatRef.needsUpdate = true
           })
-          texture.colorSpace = THREE.SRGBColorSpace
-          texture.wrapS = THREE.RepeatWrapping
-          texture.wrapT = THREE.RepeatWrapping
-          texture.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
+          if (isColor) tex.colorSpace = THREE.SRGBColorSpace
+          tex.flipY = uploadFlipY
+          tex.wrapS = THREE.RepeatWrapping
+          tex.wrapT = THREE.RepeatWrapping
+          tex.repeat.set(settings.textureScale || 1, settings.textureScale || 1)
+          tex.userData.pmUploaded = true // ours to dispose; native maps are not
+          return tex
         }
+        const texture = settings.textureUrl ? loadUploadedTexture(settings.textureUrl, true) : null
+
+        // Keep maps that came inside the model file unless the user uploaded a replacement
+        const nativeMaps = {}
+        if (settings.roughnessMapUrl) nativeMaps.roughnessMap = loadUploadedTexture(settings.roughnessMapUrl, false)
+        else if (orig?.roughnessMap) nativeMaps.roughnessMap = orig.roughnessMap
+        if (settings.metalnessMapUrl) nativeMaps.metalnessMap = loadUploadedTexture(settings.metalnessMapUrl, false)
+        else if (orig?.metalnessMap) nativeMaps.metalnessMap = orig.metalnessMap
+        if (settings.normalMapUrl) nativeMaps.normalMap = loadUploadedTexture(settings.normalMapUrl, false)
+        else if (orig?.normalMap) {
+          nativeMaps.normalMap = orig.normalMap
+          if (orig.normalScale) nativeMaps.normalScale = orig.normalScale.clone()
+        }
+        if (orig?.emissiveMap) {
+          nativeMaps.emissiveMap = orig.emissiveMap
+          if (orig.emissive) nativeMaps.emissive = orig.emissive.clone()
+          if (orig.emissiveIntensity !== undefined) nativeMaps.emissiveIntensity = orig.emissiveIntensity
+        }
+        if (orig?.aoMap) {
+          nativeMaps.aoMap = orig.aoMap
+          if (orig.aoMapIntensity !== undefined) nativeMaps.aoMapIntensity = orig.aoMapIntensity
+        }
+
         if (child.material) {
           const mats = Array.isArray(child.material) ? child.material : [child.material]
           mats.forEach(mat => {
             if (mat !== origMaterialsRef.current?.[meshIndex]) {
-              if (mat.map && typeof mat.map.dispose === 'function') mat.map.dispose()
+              // Dispose only textures we loaded; native maps are shared with the original material
+              for (const key of ['map', 'roughnessMap', 'metalnessMap', 'normalMap']) {
+                if (mat[key]?.userData?.pmUploaded && typeof mat[key].dispose === 'function') mat[key].dispose()
+              }
               if (typeof mat.dispose === 'function') mat.dispose()
             }
           })
@@ -322,9 +394,13 @@ function DraggableMeshBase({ clonedScene, position, scale, rotation, partTransfo
         const MatClass = isGlass ? THREE.MeshPhysicalNodeMaterial : THREE.MeshStandardNodeMaterial
         const newMat = new MatClass({
           color: texture ? '#ffffff' : (settings.color || '#cccccc'),
-          roughness: settings.roughness !== undefined ? settings.roughness : 0.5,
-          metalness: settings.metalness !== undefined ? settings.metalness : 0,
+          // Values the user hasn't set fall back to the model's own, then the old defaults.
+          // Whole-object materials always carry DEFAULT_MATERIAL values, so a value equal
+          // to the default counts as "not set" there (same rule as hasOverride above).
+          roughness: isUserSet(settings.roughness, DEFAULT_MATERIAL.roughness) ? settings.roughness : (orig?.roughness ?? 0.5),
+          metalness: isUserSet(settings.metalness, DEFAULT_MATERIAL.metalness) ? settings.metalness : (orig?.metalness ?? 0),
           map: texture,
+          ...nativeMaps,
           ...(isGlass && {
             transmission: settings.glass,
             transparent: true,
@@ -777,6 +853,8 @@ export function Scene({ placedFurniture, selectedId, setSelectedId, isDragging, 
           orbitRef,
           onSelectScene,
           onPartNativeMaterial: selectedId === item.instanceId ? onPartNativeMaterial : undefined,
+          // glTF UVs expect textures with flipY = false; other formats keep the loader default
+          uploadedTextureFlipY: !isGltf,
         }
         return (
           <Suspense key={item.instanceId} fallback={<LoadingMarker position={item.position} />}>
@@ -1130,10 +1208,13 @@ function ScaleRow({ objScale, scaleLocked, onUpdateScale, selectedId }) {
   )
 }
 
-function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId, nativeMat, sessionBlobsRef }) {
+function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUpdateMaterial, onPatchMaterial, onUpdateRotation, onUpdatePartTransform, onUpdatePosition, onUpdateScale, scaleLocked, onToggleScaleLock, envIntensity, onEnvIntensity, ambientIntensity, onAmbientIntensity, userId, nativeMat, sessionBlobsRef }) {
   const [tab, setTab] = useState('material')
-  const [isUploadingTex, setIsUploadingTex] = useState(false)
+  const [uploadingFields, setUploadingFields] = useState(() => new Set()) // material fields with an upload in flight
+  const [dragOverSlot, setDragOverSlot] = useState(null) // slot label a file is being dragged over
   const texInputRef = useRef()
+  const slotInputRef = useRef()        // shared hidden file input for the part-mode slots
+  const pendingSlotFieldRef = useRef(null) // which slot field the open file picker is for
 
   const item = selectedId ? placedFurniture.find(i => i.instanceId === selectedId) : null
   const isPartMode = !!item && selectedPart !== 'all'
@@ -1169,17 +1250,24 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
   }
 
   const hasPartOverride = isPartMode && !!(mat.meshMaterials?.[partIdx])
-  // Use native material values as display defaults when no override is set
-  const displayMat = isPartMode && nativeMat && !hasPartOverride ? {
+  // Use native material values as display defaults for anything the user hasn't set.
+  // Roughness/metalness follow the same rule as the 3D material: the model's own
+  // value is used until the user sets one, even when other fields are overridden.
+  const partOverride = isPartMode ? (mat.meshMaterials?.[partIdx] ?? null) : null
+  const displayMat = isPartMode && nativeMat ? {
     ...meshMat,
-    color: nativeMat.color ?? meshMat.color,
-    roughness: nativeMat.roughness ?? meshMat.roughness,
-    metalness: nativeMat.metalness ?? meshMat.metalness,
+    color: hasPartOverride ? meshMat.color : (nativeMat.color ?? meshMat.color),
+    roughness: partOverride?.roughness ?? nativeMat.roughness ?? meshMat.roughness,
+    metalness: partOverride?.metalness ?? nativeMat.metalness ?? meshMat.metalness,
   } : meshMat
 
-  const handleTexUpload = async (file) => {
+  // `field` is the material field to store the uploaded URL in (see TEXTURE_SLOTS)
+  const handleTexUpload = async (file, field = 'textureUrl') => {
     if (!file || !item) return
-    setIsUploadingTex(true)
+    // Remember where this upload belongs: selection may change before it finishes
+    const targetId = selectedId
+    const targetPart = isPartMode ? partIdx : null
+    setUploadingFields(prev => new Set(prev).add(field))
     try {
       const res = await fetch('/api/upload?action=texture', {
         method: 'POST',
@@ -1192,7 +1280,7 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
       })
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
       const { url } = await res.json()
-      handleMatChange({ textureUrl: url })
+      onPatchMaterial(targetId, targetPart, { [field]: url })
       sessionBlobsRef.current.add(url)
       fetch('/api/upload-complete', {
         method: 'POST',
@@ -1202,9 +1290,32 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
     } catch (err) {
       console.error('Texture upload failed:', err)
     } finally {
-      setIsUploadingTex(false)
+      setUploadingFields(prev => { const next = new Set(prev); next.delete(field); return next })
     }
   }
+  const isUploadingTex = uploadingFields.has('textureUrl')
+
+  const openSlotPicker = (field) => {
+    pendingSlotFieldRef.current = field
+    slotInputRef.current?.click()
+  }
+
+  // Drag-and-drop onto a slot row. Only file drags are accepted, so dragging
+  // other things over the panel doesn't light rows up.
+  const isFileDrag = (e) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+  const slotDropHandlers = (label, field) => ({
+    onDragEnter: e => { if (!isFileDrag(e)) return; e.preventDefault(); setDragOverSlot(label) },
+    onDragOver: e => { if (!isFileDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy' },
+    onDragLeave: e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverSlot(s => (s === label ? null : s)) },
+    onDrop: e => {
+      if (!isFileDrag(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      setDragOverSlot(null)
+      const f = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'))
+      if (f) handleTexUpload(f, field)
+    },
+  })
 
   const tabBtn = (id, label) => (
     <button onClick={() => setTab(id)} style={{
@@ -1266,37 +1377,73 @@ function RightPanel({ selectedId, selectedPart, placedFurniture, meshLists, onUp
             {/* Texture slots — always shown in part mode */}
             {isPartMode && <>
               {lbl('TEXTURES')}
+              {/* One hidden picker shared by all slots; pendingSlotFieldRef says which slot opened it */}
+              <input ref={slotInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+                onChange={e => {
+                  const f = e.target.files[0]
+                  if (f && pendingSlotFieldRef.current) handleTexUpload(f, pendingSlotFieldRef.current)
+                  e.target.value = ''
+                }}
+              />
               <div style={{ marginBottom: '10px' }}>
-                {(nativeMat?.slots ?? [{ label: 'BASE COLOR', thumbnail: null }]).map(slot => {
-                  const isBase = slot.label === 'BASE COLOR'
-                  const previewUrl = isBase && meshMat.textureUrl ? meshMat.textureUrl : null
+                {(nativeMat?.slots ?? Object.keys(TEXTURE_SLOTS).map(label => ({ label, thumbnail: null }))).map(slot => {
+                  const slotDef = TEXTURE_SLOTS[slot.label] // undefined for display-only slots (EMISSIVE, AO)
+                  const field = slotDef?.field
+                  const uploadedUrl = field ? meshMat[field] : null
+                  const previewSrc = uploadedUrl ?? slot.thumbnail
+                  const isUploading = field ? uploadingFields.has(field) : false
+                  const isDropTarget = !!field && dragOverSlot === slot.label
+                  const previewStyle = {
+                    width: 38, height: 38, borderRadius: 3, flexShrink: 0,
+                    border: '1px solid var(--color-border)',
+                    cursor: field ? 'pointer' : 'default',
+                  }
+                  // Preview square opens the picker for mouse users; it's hidden from
+                  // assistive tech because the upload button does the same thing.
+                  const previewProps = field ? { onClick: () => openSlotPicker(field), 'aria-hidden': true } : {}
                   return (
-                    <div key={slot.label} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                      {(previewUrl ?? slot.thumbnail)
-                        ? <img src={previewUrl ?? slot.thumbnail} style={{ width: 38, height: 38, borderRadius: 3, objectFit: 'cover', flexShrink: 0, border: '1px solid var(--color-border)' }} />
-                        : <div style={{ width: 38, height: 38, background: 'var(--color-surface-raised)', borderRadius: 3, flexShrink: 0, border: '1px solid var(--color-border)' }} />
+                    <div key={slot.label}
+                      {...(field ? slotDropHandlers(slot.label, field) : {})}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px',
+                        borderRadius: 4,
+                        // Drop highlight: outline + tint, so the row doesn't change size
+                        outline: isDropTarget ? '1px dashed var(--color-accent)' : 'none',
+                        outlineOffset: 2,
+                        background: isDropTarget ? 'color-mix(in srgb, var(--color-accent) 15%, transparent)' : 'transparent',
+                      }}>
+                      {previewSrc
+                        ? <img src={previewSrc} alt="" {...previewProps} style={{ ...previewStyle, objectFit: 'cover' }} />
+                        : <div {...previewProps} style={{ ...previewStyle, background: 'var(--color-surface-raised)' }} />
                       }
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 'var(--font-size-label)', color: 'var(--color-text-secondary)', letterSpacing: '0.07em' }}>{slot.label}</div>
                       </div>
-                      {isBase && <>
-                        <input ref={texInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-                          onChange={e => { const f = e.target.files[0]; if (f) handleTexUpload(f); e.target.value = '' }}
-                        />
-                        <button onClick={() => texInputRef.current?.click()} disabled={isUploadingTex}
-                          style={{ padding: '3px 7px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', flexShrink: 0 }}>
-                          {isUploadingTex ? '…' : '↑'}
+                      {uploadedUrl && (
+                        <button onClick={() => handleMatChange({ [field]: null })}
+                          aria-label={`Remove ${slotDef.name} texture`}
+                          style={{ padding: '3px 6px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', flexShrink: 0 }}>✕</button>
+                      )}
+                      {field && (
+                        <button onClick={() => openSlotPicker(field)} disabled={isUploading}
+                          aria-label={`Upload ${slotDef.name} texture`}
+                          aria-busy={isUploading || undefined}
+                          title={`Upload ${slotDef.name} texture (or drop an image on this row)`}
+                          style={{
+                            width: 24, height: 24, padding: 0, flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: '3px',
+                            color: 'var(--color-button)', cursor: isUploading ? 'default' : 'pointer',
+                            fontSize: 'var(--font-size-label)',
+                          }}>
+                          {isUploading ? '…' : <UploadIcon />}
                         </button>
-                        {meshMat.textureUrl && (
-                          <button onClick={() => handleMatChange({ textureUrl: null })}
-                            style={{ padding: '3px 6px', background: 'var(--color-surface-raised)', border: '1px solid var(--color-border)', borderRadius: '3px', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', flexShrink: 0 }}>✕</button>
-                        )}
-                      </>}
+                      )}
                     </div>
                   )
                 })}
               </div>
-              {meshMat.textureUrl && <>
+              {TEXTURE_URL_KEYS.some(k => meshMat[k]) && <>
                 {lbl('TEXTURE SCALE')}
                 <input type="number" step="0.1" min="0.01"
                   value={meshMat.textureScale ?? 1}
@@ -1416,6 +1563,8 @@ function App() {
   const { user } = useUser()
 
   const [placedFurniture, setPlacedFurniture] = useState([])
+  const placedFurnitureRef = useRef(placedFurniture) // latest scene, for async callbacks
+  useEffect(() => { placedFurnitureRef.current = placedFurniture }, [placedFurniture])
   const [selectedId, setSelectedId] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const [spawnOffset, setSpawnOffset] = useState(0)
@@ -1506,20 +1655,13 @@ function App() {
       const toDelete = new Set()
       if (item.sourceUrl?.startsWith('https://')) toDelete.add(item.sourceUrl)
 
-      // Collect all texture URLs from this item (top-level + per-child meshMaterials)
-      const texUrls = new Set()
-      if (item.material?.textureUrl?.startsWith('https://')) texUrls.add(item.material.textureUrl)
-      if (item.material?.meshMaterials) {
-        for (const perMesh of Object.values(item.material.meshMaterials)) {
-          if (perMesh?.textureUrl?.startsWith('https://')) texUrls.add(perMesh.textureUrl)
-        }
-      }
+      // Collect all texture URLs from this item (every slot, top-level + per-child meshMaterials)
+      const texUrls = new Set(materialTextureUrls(item.material).filter(u => u.startsWith('https://')))
       // Only delete a texture URL if no other scene item references it
       for (const texUrl of texUrls) {
         const isShared = placedFurniture.some(other => {
           if (other.instanceId === selectedId) return false
-          if (other.material?.textureUrl === texUrl) return true
-          return Object.values(other.material?.meshMaterials || {}).some(m => m?.textureUrl === texUrl)
+          return materialTextureUrls(other.material).includes(texUrl)
         })
         if (!isShared) toDelete.add(texUrl)
       }
@@ -1541,6 +1683,20 @@ function App() {
         ? { ...item, material: newMaterial }
         : item
     ))
+  }
+
+  // Merge fields into one item's material using the latest state. Used when an
+  // async texture upload finishes, so it can't overwrite edits (or other slot
+  // uploads) that happened while it was in flight. partIdx null = whole object.
+  const patchMaterial = (instanceId, partIdx, changes) => {
+    saveHistory(placedFurnitureRef.current)
+    setPlacedFurniture(prev => prev.map(item => {
+      if (item.instanceId !== instanceId) return item
+      const mat = item.material ?? DEFAULT_MATERIAL
+      if (partIdx === null) return { ...item, material: { ...mat, ...changes } }
+      const mm = mat.meshMaterials ?? {}
+      return { ...item, material: { ...mat, meshMaterials: { ...mm, [partIdx]: { ...(mm[partIdx] ?? {}), ...changes } } } }
+    }))
   }
 
   const handleMeshListUpdate = (instanceId, meshes) => {
@@ -1801,6 +1957,7 @@ const updateScale = (instanceId, newScale) => {
           placedFurniture={placedFurniture}
           meshLists={meshLists}
           onUpdateMaterial={updateMaterial}
+          onPatchMaterial={patchMaterial}
           onUpdateRotation={updateRotation}
           onUpdatePartTransform={updatePartTransform}
           onUpdatePosition={updatePosition}
