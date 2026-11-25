@@ -108,6 +108,22 @@ function nullBlobTextureUrls(mat) {
   return result
 }
 
+// Readable reason from a failed /api/share response. The API returns
+// { error, code }; Vercel's own errors (e.g. 413 body too large) may be plain text.
+async function shareErrorReason(res) {
+  let message = null
+  try {
+    const data = await res.clone().json()
+    message = data?.error || null
+  } catch { /* not JSON */ }
+  if (!message && res.status === 413) message = 'Scene is too large to share.'
+  if (!message) {
+    const text = await res.text().catch(() => '')
+    message = text.trim().slice(0, 140) || res.statusText || 'Unknown error'
+  }
+  return `${message} (HTTP ${res.status})`
+}
+
 function encodeScene(placedFurniture) {
   const serializable = placedFurniture.map(item => ({
     ...item,
@@ -1019,7 +1035,8 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
   const [embedHeight, setEmbedHeight] = useState(600)
   const [copied, setCopied] = useState(false)
   const [sharing, setSharing] = useState(false)
-  const [shareMsg, setShareMsg] = useState(null)
+  const [shareMsg, setShareMsg] = useState(null)       // short status on the button (clears after 3s)
+  const [shareDetail, setShareDetail] = useState(null) // { kind: 'error' | 'link', text } shown under the buttons until the next attempt
 
   useEffect(() => {
     setBaseUrl(window.location.origin + window.location.pathname)
@@ -1044,20 +1061,35 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
   const handleShareLink = async () => {
     setSharing(true)
     setShareMsg(null)
+    setShareDetail(null)
     try {
       const furniture = placedFurniture.map(item => ({ ...item, material: nullBlobTextureUrls(item.material) }))
-      const res = await fetch('/api/share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scene: JSON.stringify({ furniture }) }),
-      })
-      if (!res.ok) throw new Error('Server error')
+      let res
+      try {
+        res = await fetch('/api/share', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scene: JSON.stringify({ furniture }) }),
+        })
+      } catch (err) {
+        throw new Error(`Network error: ${err.message || 'could not reach the server'}`)
+      }
+      if (!res.ok) throw new Error(await shareErrorReason(res))
       const { id } = await res.json()
-      await navigator.clipboard.writeText(`${window.location.origin}/view/${id}`)
-      setShareMsg('Link copied!')
+      const link = `${window.location.origin}/view/${id}`
+      // The share exists now, whatever happens with the clipboard: keep its uploads
       onBlobsProtected?.(placedFurniture)
-    } catch {
-      setShareMsg('Failed — try again')
+      try {
+        await navigator.clipboard.writeText(link)
+        setShareMsg('Link copied!')
+      } catch {
+        // Clipboard can be blocked (permissions, unfocused page) — show the link instead
+        setShareMsg('Link ready')
+        setShareDetail({ kind: 'link', text: link })
+      }
+    } catch (err) {
+      setShareMsg('Share failed')
+      setShareDetail({ kind: 'error', text: err.message || 'Unknown error' })
     } finally {
       setSharing(false)
       setTimeout(() => setShareMsg(null), 3000)
@@ -1067,8 +1099,9 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
   const btnStyle = { width: '100%', padding: '10px', background: 'var(--color-surface-raised)', border: 'none', borderRadius: '6px', color: 'var(--color-text-primary)', cursor: 'pointer', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', textAlign: 'left' }
   const embedInputStyle = { width: '100%', padding: '6px', marginTop: '4px', background: 'var(--color-surface-raised)', color: 'var(--color-text-primary)', border: 'none', borderRadius: '4px', fontSize: 'var(--font-size-label)', fontFamily: 'var(--font-body)', boxSizing: 'border-box' }
   const embedLabelStyle = { fontSize: 'var(--font-size-label)', color: 'var(--color-text-secondary)' }
-  const shareBg = shareMsg === 'Link copied!' ? 'var(--color-success)' : shareMsg ? 'var(--color-error)' : 'var(--color-button)'
-  const shareFg = shareMsg && shareMsg !== 'Link copied!' ? 'var(--color-text-primary)' : 'var(--color-button-text)'
+  const shareOk = shareMsg === 'Link copied!' || shareMsg === 'Link ready'
+  const shareBg = shareOk ? 'var(--color-success)' : shareMsg ? 'var(--color-error)' : 'var(--color-button)'
+  const shareFg = shareMsg && !shareOk ? 'var(--color-text-primary)' : 'var(--color-button-text)'
 
   return (
     <div style={{
@@ -1107,6 +1140,21 @@ function Sidebar({ onDeleteSelected, onSelectItem, selectedId, placedFurniture, 
             {shareMsg ?? (sharing ? 'Sharing…' : 'Share link')}
           </button>
         </div>
+
+        {/* Why sharing failed, or the link when it couldn't be copied automatically */}
+        {shareDetail?.kind === 'error' && (
+          <div role="alert" style={{ marginTop: '8px', fontSize: 'var(--font-size-caption)', lineHeight: 1.4, color: 'var(--color-text-primary)', borderLeft: '2px solid var(--color-error)', paddingLeft: '8px', overflowWrap: 'anywhere' }}>
+            Share failed: {shareDetail.text}
+          </div>
+        )}
+        {shareDetail?.kind === 'link' && (
+          <div role="status" style={{ marginTop: '8px', fontSize: 'var(--font-size-caption)', color: 'var(--color-text-secondary)' }}>
+            Couldn&apos;t copy automatically. Copy this link:
+            <input readOnly value={shareDetail.text} aria-label="Share link"
+              onFocus={e => e.target.select()}
+              style={{ width: '100%', marginTop: '4px', padding: '6px', boxSizing: 'border-box', background: 'var(--color-background)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)', borderRadius: '4px', fontSize: 'var(--font-size-caption)', fontFamily: 'var(--font-body)' }} />
+          </div>
+        )}
 
         {showEmbed && (
           <div style={{ marginTop: '12px' }}>
